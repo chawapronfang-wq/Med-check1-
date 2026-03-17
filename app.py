@@ -1,110 +1,64 @@
-import streamlit as st
-import pandas as pd
+# ---------- DOWNLOAD ZONE ----------
+st.subheader("📥 ดาวน์โหลดข้อมูล")
 
-st.set_page_config(page_title="Medical Checker", layout="wide")
+# 1. ดาวน์โหลดทั้งหมด
+st.download_button(
+    "📄 ดาวน์โหลดข้อมูลทั้งหมด",
+    df.to_csv(index=False),
+    file_name="all_data.csv"
+)
 
-# ---------------- LOGIN ----------------
-users = {
-    "admin": {"password": "1234", "role": "admin"},
-    "user": {"password": "1234", "role": "user"}
-}
+# 2. ดาวน์โหลดเฉพาะ error
+error_df = df[
+    df.isnull().any(axis=1) |
+    (df.filter(like="_error").any(axis=1))
+]
 
-if "login" not in st.session_state:
-    st.session_state.login = False
+st.download_button(
+    "🚨 ดาวน์โหลดเฉพาะ Error",
+    error_df.to_csv(index=False),
+    file_name="error_data.csv"
+)
 
-def login():
-    st.title("🔐 เข้าสู่ระบบ")
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
+# 3. ดาวน์โหลดเฉพาะข้อมูลที่ถูกต้อง
+clean_df = df[
+    ~(df.isnull().any(axis=1) |
+      (df.filter(like="_error").any(axis=1)))
+]
 
-    if st.button("Login"):
-        if u in users and users[u]["password"] == p:
-            st.session_state.login = True
-            st.session_state.role = users[u]["role"]
-            st.rerun()
-        else:
-            st.error("❌ ชื่อผู้ใช้หรือรหัสผ่านผิด")
+st.download_button(
+    "🧹 ดาวน์โหลดข้อมูลที่ถูกต้อง",
+    clean_df.to_csv(index=False),
+    file_name="clean_data.csv"
+)
 
-if not st.session_state.login:
-    login()
-    st.stop()
+# 4. Summary (Missing + Error)
+summary = pd.DataFrame({
+    "Column": df.columns,
+    "Missing": df.isnull().sum().values
+})
 
-# ---------------- MENU ----------------
-menu = st.sidebar.radio("เมนู", ["🏠 Home", "📊 ตรวจข้อมูล"])
+st.download_button(
+    "📊 ดาวน์โหลด Summary",
+    summary.to_csv(index=False),
+    file_name="summary.csv"
+)
 
-if menu == "🏠 Home":
-    st.title("🏥 Medical Data Checker")
-    st.success("ระบบพร้อมใช้งาน")
+# 5. Column Quality %
+quality = {}
+total = len(df)
 
-elif menu == "📊 ตรวจข้อมูล":
+for col in df.columns:
+    ok = df[col].notnull().sum()
+    quality[col] = (ok / total) * 100
 
-    st.title("📊 ตรวจสอบข้อมูล")
+quality_df = pd.DataFrame({
+    "Column": list(quality.keys()),
+    "Quality (%)": list(quality.values())
+})
 
-    # ---------------- FILE UPLOAD ----------------
-    file = st.file_uploader("📁 อัปโหลดไฟล์ (Excel / CSV)", type=["xlsx","csv"])
-
-    if file:
-        try:
-            # ---------- READ FILE ----------
-            if file.name.endswith(".csv"):
-                df = pd.read_csv(file)
-            else:
-                df = pd.read_excel(file)
-
-            st.success("✅ อัปโหลดไฟล์สำเร็จ")
-            st.subheader("📋 ตัวอย่างข้อมูล")
-            st.dataframe(df.head())
-
-            # ---------- LOGIC CHECK ----------
-            def check_logic(df):
-                df = df.copy()
-
-                if "Age" in df.columns:
-                    df["Age_error"] = df["Age"] < 0
-
-                if "Weight" in df.columns:
-                    df["Weight_error"] = df["Weight"] < 0
-
-                if "Gender" in df.columns:
-                    df["Gender_error"] = ~df["Gender"].isin(["Male","Female"])
-
-                return df
-
-            df = check_logic(df)
-
-            # ---------- MISSING ----------
-            missing = df.isnull().sum()
-            st.subheader("📊 Missing ต่อคอลัมน์")
-            st.bar_chart(missing)
-
-            # ---------- HIGHLIGHT ----------
-            def highlight(val):
-                if pd.isnull(val):
-                    return "background-color: #ff4d4d"
-                return ""
-
-            st.subheader("📋 ตาราง (Highlight ช่องพัง)")
-            st.dataframe(df.style.applymap(highlight))
-
-            # ---------- ERROR ROW ----------
-            error_df = df[
-                df.isnull().any(axis=1) |
-                (df.filter(like="_error").any(axis=1))
-            ]
-
-            st.subheader("🚨 แถวที่มีปัญหา")
-            st.dataframe(error_df)
-
-            # ---------- DOWNLOAD ----------
-            st.download_button(
-                "📥 ดาวน์โหลด Error",
-                error_df.to_csv(index=False),
-                file_name="error.csv"
-            )
-
-            # ---------- ADMIN ----------
-            if st.session_state.role == "admin":
-                st.warning("👑 Admin Mode")
-
-        except Exception as e:
-            st.error(f"❌ อ่านไฟล์ไม่ได้: {e}")
+st.download_button(
+    "📈 ดาวน์โหลดคุณภาพรายคอลัมน์",
+    quality_df.to_csv(index=False),
+    file_name="column_quality.csv"
+)
