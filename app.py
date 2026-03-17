@@ -52,14 +52,9 @@ elif menu == "📊 ตรวจข้อมูล":
             else:
                 df = pd.read_excel(file)
 
-            st.success("✅ อัปโหลดสำเร็จ")
-
-            # -------- PREVIEW --------
-            if st.checkbox("🔍 ดูตัวอย่างข้อมูล"):
-                st.dataframe(df.head(50))
-
-            # -------- CLEAN --------
             df = df.replace("None", None)
+
+            st.success("✅ อัปโหลดสำเร็จ")
 
             # -------- CHECK --------
             if "Age" in df.columns:
@@ -85,7 +80,7 @@ elif menu == "📊 ตรวจข้อมูล":
             error_df = df[error_mask]
             clean_df = df[~error_mask]
 
-            # -------- DASHBOARD --------
+            # -------- SUMMARY --------
             st.subheader("📊 ภาพรวมข้อมูล")
 
             col1, col2, col3 = st.columns(3)
@@ -93,33 +88,41 @@ elif menu == "📊 ตรวจข้อมูล":
             col2.metric("ผิดพลาด", len(error_df))
             col3.metric("ถูกต้อง", len(clean_df))
 
-            # -------- MISSING --------
-            st.subheader("📉 Missing ต่อคอลัมน์")
-            st.bar_chart(df.isnull().sum())
+            # -------- DATA QUALITY (%) --------
+            st.subheader("📈 ความสมบูรณ์ของข้อมูล (%)")
 
-            # -------- PIE (แบบง่าย) --------
-            pie_data = pd.DataFrame({
-                "Status": ["Missing", "Complete"],
-                "Count": [
-                    df.isnull().sum().sum(),
-                    df.notnull().sum().sum()
-                ]
+            total = len(df)
+            quality = []
+
+            for col in df.columns:
+                notnull = df[col].notnull().sum()
+                percent = (notnull / total) * 100 if total > 0 else 0
+                quality.append(percent)
+
+            quality_df = pd.DataFrame({
+                "Column": df.columns,
+                "Quality (%)": quality
             })
-            st.bar_chart(pie_data.set_index("Status"))
 
-            # -------- FILTER --------
-            st.subheader("🔍 เลือกการแสดงผล")
-            show_error = st.checkbox("แสดงเฉพาะข้อมูลผิดพลาด")
+            st.bar_chart(quality_df.set_index("Column"))
+
+            # -------- OVERALL QUALITY --------
+            overall_quality = (df.notnull().sum().sum() / (df.shape[0] * df.shape[1])) * 100
+            st.metric("คุณภาพข้อมูลรวม (%)", f"{overall_quality:.2f}%")
+
+            # -------- TABLE --------
+            st.subheader("📋 ตารางข้อมูล")
 
             def highlight_row(row):
                 if row.isnull().any():
                     return ["background-color:#ffcccc"] * len(row)
                 return [""] * len(row)
 
-            if show_error:
-                st.dataframe(error_df.style.apply(highlight_row, axis=1))
-            else:
-                st.dataframe(df.style.apply(highlight_row, axis=1))
+            st.dataframe(df.style.apply(highlight_row, axis=1))
+
+            # -------- ERROR TABLE --------
+            st.subheader("🚨 ข้อมูลที่มีปัญหา")
+            st.dataframe(error_df)
 
             # -------- DOWNLOAD --------
             st.subheader("📥 ดาวน์โหลด")
@@ -131,26 +134,23 @@ elif menu == "📊 ตรวจข้อมูล":
             )
 
             st.download_button(
-                "🚨 เฉพาะ Error",
+                "🚨 Error",
                 error_df.to_csv(index=False),
                 "error_data.csv"
             )
 
             st.download_button(
-                "🧹 เฉพาะข้อมูลถูกต้อง",
+                "🧹 Clean",
                 clean_df.to_csv(index=False),
                 "clean_data.csv"
             )
 
-            summary = pd.DataFrame({
-                "Column": df.columns,
-                "Missing": df.isnull().sum().values
-            })
+            quality_export = quality_df.copy()
 
             st.download_button(
-                "📊 Summary",
-                summary.to_csv(index=False),
-                "summary.csv"
+                "📊 Quality Report",
+                quality_export.to_csv(index=False),
+                "quality_report.csv"
             )
 
             # -------- ADMIN --------
