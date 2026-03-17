@@ -1,161 +1,149 @@
-import streamlit as st
 import pandas as pd
+import numpy as np
+import streamlit as st
+import re
 
-st.set_page_config(page_title="Medical Checker", layout="wide")
+st.set_page_config(page_title="Medical Data Checker", page_icon="🏥", layout="wide")
 
-# ---------------- LOGIN ----------------
-users = {
-    "admin": {"password": "1234", "role": "admin"},
-    "user": {"password": "1234", "role": "user"}
-}
+st.title("🏥 Medical Data Quality Checker")
 
-if "login" not in st.session_state:
-    st.session_state.login = False
+uploaded_file = st.file_uploader("📁 อัปโหลดไฟล์ (CSV / Excel)", type=["csv", "xlsx"])
 
-def login():
-    st.title("🔐 เข้าสู่ระบบ")
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
+if uploaded_file is not None:
 
-    if st.button("Login"):
-        if u in users and users[u]["password"] == p:
-            st.session_state.login = True
-            st.session_state.role = users[u]["role"]
-            st.rerun()
+    # อ่านไฟล์
+    if uploaded_file.name.endswith(".csv"):
+        df = pd.read_csv(uploaded_file)
+    else:
+        df = pd.read_excel(uploaded_file)
+
+    # -------------------------
+    # 🔍 ตรวจ DiagnosisCode (ICD-10)
+    # -------------------------
+    def check_icd(code):
+        if pd.isna(code):
+            return "Missing"
+        pattern = r"^[A-Z][0-9]{2,3}$"
+        if re.match(pattern, str(code)):
+            return "OK"
         else:
-            st.error("❌ ชื่อผู้ใช้หรือรหัสผ่านผิด")
+            return "Invalid"
 
-if not st.session_state.login:
-    login()
-    st.stop()
+    df["Diagnosis_error"] = df["DiagnosisCode"].apply(check_icd)
 
-# ---------------- UI ----------------
-st.markdown("## 🏥 ระบบตรวจสอบคุณภาพข้อมูลผู้ป่วย")
-st.caption("Medical Data Quality Dashboard")
+    # -------------------------
+    # 🔍 ตรวจ Height
+    # -------------------------
+    def check_height(h):
+        if pd.isna(h):
+            return "Missing"
+        elif h < 50 or h > 250:
+            return "Invalid"
+        else:
+            return "OK"
 
-menu = st.sidebar.radio("เมนู", ["🏠 Home", "📊 ตรวจข้อมูล"])
+    df["Height_error"] = df["Height"].apply(check_height)
 
-if menu == "🏠 Home":
-    st.success("✅ ระบบพร้อมใช้งาน")
+    # -------------------------
+    # 🔍 ตรวจ Age
+    # -------------------------
+    def check_age(a):
+        if pd.isna(a):
+            return "Missing"
+        elif a < 0 or a > 120:
+            return "Invalid"
+        else:
+            return "OK"
 
-elif menu == "📊 ตรวจข้อมูล":
+    df["Age_error"] = df["Age"].apply(check_age)
 
-    st.title("📊 ตรวจสอบข้อมูล")
+    # -------------------------
+    # 🔍 ตรวจ Weight
+    # -------------------------
+    def check_weight(w):
+        if pd.isna(w):
+            return "Missing"
+        elif w < 1 or w > 300:
+            return "Invalid"
+        else:
+            return "OK"
 
-    file = st.file_uploader("📁 อัปโหลดไฟล์ (Excel / CSV)", type=["xlsx","csv"])
+    df["Weight_error"] = df["Weight"].apply(check_weight)
 
-    if file:
+    # -------------------------
+    # 🔍 ตรวจ Gender
+    # -------------------------
+    def check_gender(g):
+        if pd.isna(g):
+            return "Missing"
+        elif g not in ["Male", "Female"]:
+            return "Invalid"
+        else:
+            return "OK"
+
+    df["Gender_error"] = df["Gender"].apply(check_gender)
+
+    # -------------------------
+    # 🔍 ตรวจ Date
+    # -------------------------
+    def check_date(d):
         try:
-            # -------- READ --------
-            if file.name.endswith(".csv"):
-                df = pd.read_csv(file)
-            else:
-                df = pd.read_excel(file)
+            pd.to_datetime(d)
+            return "OK"
+        except:
+            return "Invalid"
 
-            df = df.replace("None", None)
+    df["Date_error"] = df["VisitDate"].apply(lambda x: "Missing" if pd.isna(x) else check_date(x))
 
-            st.success("✅ อัปโหลดสำเร็จ")
+    # -------------------------
+    # 📊 คำนวณ % คุณภาพ
+    # -------------------------
+    error_cols = [
+        "Age_error", "Weight_error", "Height_error",
+        "Gender_error", "Date_error", "Diagnosis_error"
+    ]
 
-            # -------- CHECK --------
-            if "Age" in df.columns:
-                df["Age_error"] = (df["Age"] < 0) | (df["Age"] > 120)
+    quality = {}
+    for col in error_cols:
+        ok = (df[col] == "OK").sum()
+        quality[col] = (ok / len(df)) * 100
 
-            if "Weight" in df.columns:
-                df["Weight_error"] = (df["Weight"] < 0) | (df["Weight"] > 300)
+    overall = np.mean(list(quality.values()))
 
-            if "Gender" in df.columns:
-                df["Gender_error"] = ~df["Gender"].isin(["Male", "Female"])
+    # -------------------------
+    # 🏆 Grade
+    # -------------------------
+    if overall >= 90:
+        grade = "A 🟢"
+    elif overall >= 80:
+        grade = "B 🟡"
+    else:
+        grade = "C 🔴"
 
-            if "VisitDate" in df.columns:
-                df["VisitDate"] = pd.to_datetime(df["VisitDate"], errors="coerce")
-                df["Date_error"] = df["VisitDate"].isnull()
+    # -------------------------
+    # 📊 Dashboard
+    # -------------------------
+    c1, c2, c3 = st.columns(3)
+    c1.metric("📄 จำนวนข้อมูล", len(df))
+    c2.metric("📊 คุณภาพรวม (%)", f"{overall:.2f}%")
+    c3.metric("🏆 เกรด", grade)
 
-            # -------- ERROR FILTER --------
-            error_cols = [c for c in df.columns if "_error" in c]
-            error_mask = df.isnull().any(axis=1)
+    st.subheader("📊 ความสมบูรณ์ของข้อมูล (%)")
 
-            if error_cols:
-                error_mask = error_mask | df[error_cols].any(axis=1)
+    quality_df = pd.DataFrame({
+        "Column": list(quality.keys()),
+        "Quality (%)": list(quality.values())
+    }).sort_values(by="Quality (%)")
 
-            error_df = df[error_mask]
-            clean_df = df[~error_mask]
+    st.bar_chart(quality_df.set_index("Column"))
 
-            # -------- SUMMARY --------
-            st.subheader("📊 ภาพรวมข้อมูล")
+    # -------------------------
+    # 🎨 highlight error
+    # -------------------------
+    def highlight(val):
+        if val in ["Missing", "Invalid"]:
+            return "background-color: red"
+        return ""
 
-            col1, col2, col3 = st.columns(3)
-            col1.metric("ทั้งหมด", len(df))
-            col2.metric("ผิดพลาด", len(error_df))
-            col3.metric("ถูกต้อง", len(clean_df))
-
-            # -------- DATA QUALITY (%) --------
-            st.subheader("📈 ความสมบูรณ์ของข้อมูล (%)")
-
-            total = len(df)
-            quality = []
-
-            for col in df.columns:
-                notnull = df[col].notnull().sum()
-                percent = (notnull / total) * 100 if total > 0 else 0
-                quality.append(percent)
-
-            quality_df = pd.DataFrame({
-                "Column": df.columns,
-                "Quality (%)": quality
-            })
-
-            st.bar_chart(quality_df.set_index("Column"))
-
-            # -------- OVERALL QUALITY --------
-            overall_quality = (df.notnull().sum().sum() / (df.shape[0] * df.shape[1])) * 100
-            st.metric("คุณภาพข้อมูลรวม (%)", f"{overall_quality:.2f}%")
-
-            # -------- TABLE --------
-            st.subheader("📋 ตารางข้อมูล")
-
-            def highlight_row(row):
-                if row.isnull().any():
-                    return ["background-color:#ffcccc"] * len(row)
-                return [""] * len(row)
-
-            st.dataframe(df.style.apply(highlight_row, axis=1))
-
-            # -------- ERROR TABLE --------
-            st.subheader("🚨 ข้อมูลที่มีปัญหา")
-            st.dataframe(error_df)
-
-            # -------- DOWNLOAD --------
-            st.subheader("📥 ดาวน์โหลด")
-
-            st.download_button(
-                "📄 ทั้งหมด",
-                df.to_csv(index=False),
-                "all_data.csv"
-            )
-
-            st.download_button(
-                "🚨 Error",
-                error_df.to_csv(index=False),
-                "error_data.csv"
-            )
-
-            st.download_button(
-                "🧹 Clean",
-                clean_df.to_csv(index=False),
-                "clean_data.csv"
-            )
-
-            quality_export = quality_df.copy()
-
-            st.download_button(
-                "📊 Quality Report",
-                quality_export.to_csv(index=False),
-                "quality_report.csv"
-            )
-
-            # -------- ADMIN --------
-            if st.session_state.role == "admin":
-                st.warning("👑 Admin Mode")
-
-        except Exception as e:
-            st.error(f"❌ โหลดไฟล์ไม่ได้: {e}")
+    st.subheader("📋 ตารางข้อมูล (มีการตรวจสอบแล้ว)")
+    st.dataframe(df.style.applymap(highlight, subset=error_cols))
