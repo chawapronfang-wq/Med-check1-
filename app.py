@@ -1,11 +1,9 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
 
-# ------------------ CONFIG ------------------
-st.set_page_config(page_title="Medical Data Checker", layout="wide")
+st.set_page_config(page_title="Medical Checker", layout="wide")
 
-# ------------------ LOGIN SYSTEM ------------------
+# ---------------- LOGIN ----------------
 users = {
     "admin": {"password": "1234", "role": "admin"},
     "user": {"password": "1234", "role": "user"}
@@ -16,84 +14,89 @@ if "login" not in st.session_state:
 
 def login():
     st.title("🔐 เข้าสู่ระบบ")
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
 
     if st.button("Login"):
-        if username in users and users[username]["password"] == password:
+        if u in users and users[u]["password"] == p:
             st.session_state.login = True
-            st.session_state.role = users[username]["role"]
-            st.success("เข้าสู่ระบบสำเร็จ")
+            st.session_state.role = users[u]["role"]
             st.rerun()
         else:
-            st.error("❌ ชื่อผู้ใช้หรือรหัสผ่านผิด")
+            st.error("❌ ผิด")
 
 if not st.session_state.login:
     login()
     st.stop()
 
-# ------------------ SIDEBAR ------------------
-menu = st.sidebar.radio("เมนู", ["🏠 Home", "📊 ตรวจข้อมูล", "ℹ️ About"])
+# ---------------- MENU ----------------
+menu = st.sidebar.radio("เมนู", ["Home", "ตรวจข้อมูล"])
 
-# ------------------ HOME ------------------
-if menu == "🏠 Home":
+# ---------------- HOME ----------------
+if menu == "Home":
     st.title("🏥 Medical Data Checker")
-    st.write("ระบบตรวจสอบความถูกต้องของข้อมูลสุขภาพ")
-    st.info("อัปโหลดไฟล์ Excel เพื่อตรวจสอบ Missing / Error")
 
-# ------------------ ABOUT ------------------
-elif menu == "ℹ️ About":
-    st.title("ℹ️ เกี่ยวกับระบบ")
-    st.write("""
-    ระบบนี้ใช้สำหรับ:
-    - ตรวจสอบข้อมูลผู้ป่วย
-    - หา Missing Data
-    - สรุป Error
-    """)
+# ---------------- MAIN ----------------
+elif menu == "ตรวจข้อมูล":
 
-# ------------------ MAIN APP ------------------
-elif menu == "📊 ตรวจข้อมูล":
+    file = st.file_uploader("📁 อัปโหลด Excel", type=["xlsx"])
 
-    st.title("📊 ตรวจสอบข้อมูล")
+    if file:
+        df = pd.read_excel(file)
 
-    uploaded_file = st.file_uploader("📁 อัปโหลดไฟล์ Excel", type=["xlsx"])
+        # ---------------- LOGIC CHECK ----------------
+        def check_logic(df):
+            df = df.copy()
 
-    if uploaded_file:
-        df = pd.read_excel(uploaded_file)
+            if "Age" in df.columns:
+                df["Age_error"] = df["Age"] < 0
 
-        st.subheader("📋 ข้อมูลตัวอย่าง")
-        st.dataframe(df.head())
+            if "Weight" in df.columns:
+                df["Weight_error"] = df["Weight"] < 0
 
-        # ------------------ CHECK MISSING ------------------
-        missing = df.isnull().sum()
+            if "Gender" in df.columns:
+                df["Gender_error"] = ~df["Gender"].isin(["Male", "Female"])
 
-        # ------------------ PIE CHART ------------------
-        st.subheader("📊 สัดส่วน Missing Data")
+            return df
 
-        fig1, ax1 = plt.subplots()
-        ax1.pie(missing, labels=missing.index, autopct='%1.1f%%')
-        st.pyplot(fig1)
+        df = check_logic(df)
 
-        # ------------------ BAR CHART ------------------
-        st.subheader("📊 จำนวน Missing ต่อคอลัมน์")
+        # ---------------- MISSING ----------------
+        missing_total = df.isnull().sum().sum()
+        total_cells = df.size
+        complete = total_cells - missing_total
 
-        fig2, ax2 = plt.subplots()
-        ax2.bar(missing.index, missing.values)
-        plt.xticks(rotation=45)
-        st.pyplot(fig2)
+        st.subheader("📊 สัดส่วนข้อมูล")
+        chart_data = pd.DataFrame({
+            "Status": ["Missing", "Complete"],
+            "Count": [missing_total, complete]
+        })
+        st.bar_chart(chart_data.set_index("Status"))
 
-        # ------------------ ERROR TABLE ------------------
-        st.subheader("🚨 แถวที่มี Missing")
-        error_df = df[df.isnull().any(axis=1)]
+        # ---------------- HIGHLIGHT ----------------
+        def highlight(val):
+            if pd.isnull(val):
+                return "background-color: red"
+            return ""
+
+        st.subheader("📋 ตารางข้อมูล (ไฮไลต์)")
+        st.dataframe(df.style.applymap(highlight))
+
+        # ---------------- ERROR ROW ----------------
+        error_df = df[
+            df.isnull().any(axis=1) |
+            (df.filter(like="_error").any(axis=1))
+        ]
+
+        st.subheader("🚨 แถวที่มีปัญหา")
         st.dataframe(error_df)
 
-        # ------------------ DOWNLOAD ------------------
+        # ---------------- DOWNLOAD ----------------
         st.download_button(
-            "📥 ดาวน์โหลดข้อมูล Error",
+            "📥 ดาวน์โหลด Error",
             error_df.to_csv(index=False),
-            file_name="error_data.csv"
+            file_name="error.csv"
         )
 
-        # ------------------ ROLE CONTROL ------------------
         if st.session_state.role == "admin":
-            st.warning("👑 คุณเป็น Admin สามารถเห็นข้อมูลทั้งหมด")
+            st.warning("👑 Admin Mode: เห็น error ทั้งหมด")
