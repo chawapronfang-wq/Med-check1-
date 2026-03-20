@@ -46,7 +46,7 @@ if menu == "Home":
 # ================= DATA CHECK =================
 elif menu == "Data Check":
 
-    file = st.file_uploader("Upload File", type=["xlsx","csv"])
+    file = st.file_uploader("📁 Upload File", type=["xlsx","csv"])
 
     if file:
         try:
@@ -109,22 +109,66 @@ elif menu == "Data Check":
                 lambda x:"Good 🟢" if x>=90 else "Fair 🟡" if x>=70 else "Poor 🔴"
             )
 
-            # ===== DASHBOARD =====
-            c1,c2,c3=st.columns(3)
-            c1.metric("Total",len(df))
-            c2.metric("Avg Score",f"{df['MRA_Score'].mean():.2f}%")
-            c3.metric("Avg Error",f"{df['Error_Count'].mean():.2f}")
+            # ================= FILTER =================
+            st.subheader("🔎 Filter")
 
-            st.bar_chart(df["MRA_Level"].value_counts())
+            filtered_df = df.copy()
 
-            # ===== ERROR SUMMARY =====
+            c1,c2 = st.columns(2)
+
+            if "Doctor" in df.columns:
+                doctors = ["All"] + sorted(df["Doctor"].dropna().unique().tolist())
+                doc = c1.selectbox("Doctor", doctors)
+                if doc != "All":
+                    filtered_df = filtered_df[filtered_df["Doctor"] == doc]
+
+            level = c2.selectbox("Level", ["All","Good 🟢","Fair 🟡","Poor 🔴"])
+            if level != "All":
+                filtered_df = filtered_df[filtered_df["MRA_Level"] == level]
+
+            # ================= DASHBOARD =================
+            c1,c2,c3 = st.columns(3)
+            c1.metric("Total", len(filtered_df))
+            c2.metric("Avg Score", f"{filtered_df['MRA_Score'].mean():.2f}%")
+            c3.metric("Avg Error", f"{filtered_df['Error_Count'].mean():.2f}")
+
+            st.bar_chart(filtered_df["MRA_Level"].value_counts())
+
+            # ================= ERROR SUMMARY =================
             if error_cols:
-                err_sum={col:(df[col]!="OK").sum() for col in error_cols}
+                err_sum={col:(filtered_df[col]!="OK").sum() for col in error_cols}
                 err_df=pd.DataFrame({"Column":err_sum.keys(),"Errors":err_sum.values()})
                 st.subheader("Top Errors")
                 st.bar_chart(err_df.set_index("Column"))
 
-            # ===== HIGHLIGHT =====
+            # ================= CASE VIEW =================
+            st.subheader("🔍 วิเคราะห์รายเคส")
+
+            if "PatientID" in filtered_df.columns:
+                pid = st.selectbox("เลือกเคส", filtered_df["PatientID"])
+                case = filtered_df[filtered_df["PatientID"]==pid].iloc[0]
+            else:
+                idx = st.selectbox("เลือก index", filtered_df.index)
+                case = filtered_df.loc[idx]
+
+            st.markdown(f"""
+### 🧾 Result
+- 🎯 Score: **{case['MRA_Score']:.2f}%**
+- 📊 Level: **{case['MRA_Level']}**
+- ❌ Errors: **{case['Error_Count']} จุด**
+""")
+
+            st.markdown("### 🔎 ปัญหาที่พบ")
+            for col in error_cols:
+                if case[col] != "OK":
+                    st.write(f"❌ {col} → {case[col]}")
+
+            st.markdown("### 📉 คะแนนที่หายไป")
+            for col,w in weights.items():
+                if col in case and case[col] != "OK":
+                    st.write(f"- {col} (-{w*100:.0f}%)")
+
+            # ================= TABLE =================
             def highlight(v):
                 if v=="Missing": return "background-color:orange"
                 if v=="Invalid": return "background-color:red;color:white"
@@ -138,14 +182,22 @@ elif menu == "Data Check":
                 return [""]*len(row)
 
             if error_cols:
-                styled=df.style.apply(highlight_row,axis=1)\
-                                .applymap(highlight,subset=error_cols)
+                styled=filtered_df.style.apply(highlight_row,axis=1)\
+                                        .applymap(highlight,subset=error_cols)
                 st.dataframe(styled)
             else:
-                st.dataframe(df)
+                st.dataframe(filtered_df)
 
-            # ===== DOWNLOAD =====
-            st.download_button("Download All",df.to_csv(index=False),"all.csv")
+            # ================= AI RECOMMEND =================
+            st.subheader("🤖 Recommendation")
+
+            for col in error_cols:
+                count = (filtered_df[col]!="OK").sum()
+                if count>0:
+                    st.warning(f"{col}: พบ {count} เคส ควรปรับปรุง")
+
+            # ================= DOWNLOAD =================
+            st.download_button("📄 Download", filtered_df.to_csv(index=False), "result.csv")
 
         except Exception as e:
             st.error(f"❌ {e}")
