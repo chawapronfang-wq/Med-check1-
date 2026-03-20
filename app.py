@@ -34,7 +34,7 @@ if not st.session_state.login:
     st.stop()
 
 # ================= MISSING HANDLER =================
-MISSING = "❌ ไม่มีข้อมูล (Missing)"
+MISSING = "❌ ไม่มีข้อมูล"
 
 def clean(v):
     if v is None:
@@ -63,6 +63,8 @@ if file:
     tx_raw  = get("Treatment")
     fu_raw  = get("FollowUp")
     dr_raw  = get("Doctor")
+    age_raw = get("Age")
+    sex_raw = get("Sex")
 
     # ================= CHECK =================
     def icd(v):
@@ -75,18 +77,29 @@ if file:
             return "❌ ไม่มีข้อมูล"
         return "ถูกต้อง" if len(str(v)) >= 3 else "ข้อมูลไม่ครบ"
 
+    def basic(v):
+        if v == MISSING:
+            return "❌ ไม่มีข้อมูล"
+        return "ถูกต้อง"
+
     df["ICD"] = icd_raw.apply(icd)
     df["DX"]  = dx_raw.apply(txt)
     df["TX"]  = tx_raw.apply(txt)
     df["FU"]  = fu_raw.apply(txt)
     df["DR"]  = dr_raw.apply(txt)
+    df["AGE"] = age_raw.apply(basic)
+    df["SEX"] = sex_raw.apply(basic)
 
     # ================= SCORE =================
     def score(r):
-        items = [r["ICD"], r["DX"], r["TX"], r["FU"], r["DR"]]
+        items = [
+            r["ICD"], r["DX"], r["TX"], r["FU"],
+            r["DR"], r["AGE"], r["SEX"]
+        ]
         total = len(items)
         got = sum(1 for i in items if i == "ถูกต้อง")
-        return pd.Series([total, got, (got/total)*100])
+        percent = (got / total) * 100
+        return pd.Series([total, got, percent])
 
     df[["เต็ม","ได้","%"]] = df.apply(score, axis=1)
 
@@ -104,16 +117,13 @@ if file:
     def จุดที่ต้องแก้(row):
         issues = []
 
-        if row["ICD"] != "ถูกต้อง":
-            issues.append("ICD-10")
-        if row["DX"] != "ถูกต้อง":
-            issues.append("Diagnosis")
-        if row["TX"] != "ถูกต้อง":
-            issues.append("Treatment")
-        if row["FU"] != "ถูกต้อง":
-            issues.append("Follow-up")
-        if row["DR"] != "ถูกต้อง":
-            issues.append("Doctor")
+        if row["ICD"] != "ถูกต้อง": issues.append("ICD-10")
+        if row["DX"]  != "ถูกต้อง": issues.append("Diagnosis")
+        if row["TX"]  != "ถูกต้อง": issues.append("Treatment")
+        if row["FU"]  != "ถูกต้อง": issues.append("Follow-up")
+        if row["DR"]  != "ถูกต้อง": issues.append("Doctor")
+        if row["AGE"] != "ถูกต้อง": issues.append("อายุ")
+        if row["SEX"] != "ถูกต้อง": issues.append("เพศ")
 
         return " / ".join(issues) if issues else "-"
 
