@@ -4,18 +4,18 @@ import re
 import io
 from datetime import datetime
 
-st.set_page_config(page_title="MRA OPD PRO", layout="wide")
+st.set_page_config(page_title="MRA OPD REALTIME", layout="wide")
 
 # ================= HEADER =================
 st.markdown("""
 <div style="background:linear-gradient(90deg,#0f3057,#008891);
 padding:18px;border-radius:12px;color:white;font-size:22px">
-🏥 ระบบ MRA OPD PRO (Audit + Error Tracking + KPI)
+🏥 MRA OPD REALTIME DASHBOARD (FINAL)
 </div>
 """, unsafe_allow_html=True)
 
 # ================= LOGIN =================
-users = {"admin": "1234"}
+users = {"admin":"1234"}
 
 if "login" not in st.session_state:
     st.session_state.login = False
@@ -40,79 +40,52 @@ if file:
 
     df = pd.read_csv(file) if file.name.endswith("csv") else pd.read_excel(file)
 
-    # ================= CLEAN DATA =================
+    # ================= CLEAN =================
     df = df.fillna("ไม่ระบุ")
 
-    # ================= CHECK FUNCTIONS =================
+    # ================= CHECK =================
     def icd(v):
         if v == "ไม่ระบุ":
             return "ไม่มีข้อมูล"
-        return "ถูกต้อง" if re.match(r"^[A-Z][0-9]{2,3}$", str(v)) else "รูปแบบผิด"
+        return "ถูกต้อง" if re.match(r"^[A-Z][0-9]{2,3}$", str(v)) else "ผิดรูปแบบ"
 
-    def text(v):
+    def txt(v):
         if v == "ไม่ระบุ":
             return "ไม่มีข้อมูล"
-        return "ถูกต้อง" if len(str(v)) >= 3 else "ข้อมูลสั้น"
+        return "ถูกต้อง" if len(str(v)) >= 3 else "ข้อมูลไม่ครบ"
 
-    # ================= STATUS PER FIELD =================
-    df["ICD_status"] = df["DiagnosisCode"].apply(icd) if "DiagnosisCode" in df else "ไม่มีข้อมูล"
-    df["DX_status"] = df["DiagnosisText"].apply(text) if "DiagnosisText" in df else "ไม่มีข้อมูล"
-    df["TX_status"] = df["Treatment"].apply(text) if "Treatment" in df else "ไม่มีข้อมูล"
-    df["FU_status"] = df["FollowUp"].apply(text) if "FollowUp" in df else "ไม่มีข้อมูล"
-    df["DR_status"] = df["Doctor"].apply(text) if "Doctor" in df else "ไม่มีข้อมูล"
-
-    # ================= ERROR DETAIL =================
-    def error_list(row):
-        err = []
-
-        if row["ICD_status"] != "ถูกต้อง":
-            err.append("ICD-10")
-        if row["DX_status"] != "ถูกต้อง":
-            err.append("Diagnosis")
-        if row["TX_status"] != "ถูกต้อง":
-            err.append("Treatment")
-        if row["FU_status"] != "ถูกต้อง":
-            err.append("Follow-up")
-        if row["DR_status"] != "ถูกต้อง":
-            err.append("Doctor")
-
-        return "✅ ผ่าน" if len(err) == 0 else "❌ ต้องแก้: " + ", ".join(err)
-
-    df["ปัญหา"] = df.apply(error_list, axis=1)
+    # ================= FIELD STATUS =================
+    df["ICD"] = df["DiagnosisCode"].apply(icd) if "DiagnosisCode" in df else "ไม่มีข้อมูล"
+    df["DX"] = df["DiagnosisText"].apply(txt) if "DiagnosisText" in df else "ไม่มีข้อมูล"
+    df["TX"] = df["Treatment"].apply(txt) if "Treatment" in df else "ไม่มีข้อมูล"
+    df["FU"] = df["FollowUp"].apply(txt) if "FollowUp" in df else "ไม่มีข้อมูล"
+    df["DR"] = df["Doctor"].apply(txt) if "Doctor" in df else "ไม่มีข้อมูล"
 
     # ================= SCORE =================
-    def score(row):
-        checks = [
-            row["ICD_status"],
-            row["DX_status"],
-            row["TX_status"],
-            row["FU_status"],
-            row["DR_status"]
-        ]
-
-        total = len(checks)
-        got = sum(1 for c in checks if c == "ถูกต้อง")
+    def score(r):
+        items = [r["ICD"], r["DX"], r["TX"], r["FU"], r["DR"]]
+        total = len(items)
+        got = sum(1 for i in items if i == "ถูกต้อง")
         percent = (got / total) * 100
-
         return pd.Series([total, got, percent])
 
     df[["คะแนนเต็ม","คะแนนได้","เปอร์เซ็นต์"]] = df.apply(score, axis=1)
 
-    # ================= STATUS LEVEL =================
+    # ================= STATUS =================
     def status(x):
         if x >= 80:
             return "🟢 ผ่านเกณฑ์"
         elif x >= 60:
             return "🟡 เฝ้าระวัง"
-        else:
-            return "🔴 ต้องแก้ไข"
+        return "🔴 ต้องแก้ไข"
 
     df["สถานะ"] = df["เปอร์เซ็นต์"].apply(status)
 
-    # ================= KPI =================
-    st.markdown("## 📊 KPI Dashboard")
+    # ================= KPI DASHBOARD =================
+    st.markdown("## 📊 KPI Dashboard (Realtime)")
 
     c1, c2, c3 = st.columns(3)
+
     c1.metric("จำนวนเคส", len(df))
     c2.metric("คะแนนเฉลี่ย", f"{df['คะแนนได้'].mean():.2f}")
     c3.metric("% ผ่าน", f"{len(df[df['สถานะ']=='🟢 ผ่านเกณฑ์'])/len(df)*100:.2f}")
@@ -131,53 +104,56 @@ if file:
             return ["background-color:#d4edda"] * len(row)
         elif row["สถานะ"] == "🟡 เฝ้าระวัง":
             return ["background-color:#fff3cd"] * len(row)
-        else:
-            return ["background-color:#f8d7da"] * len(row)
+        return ["background-color:#f8d7da"] * len(row)
 
     st.markdown("## 📋 ตารางข้อมูล")
     st.dataframe(df.style.apply(color, axis=1), use_container_width=True)
 
-    # ================= ERROR TABLE =================
-    st.markdown("## ❌ เคสที่ต้องแก้ (ละเอียด)")
-
-    error_df = df[df["สถานะ"] != "🟢 ผ่านเกณฑ์"][[
-        "DiagnosisCode","DiagnosisText","Treatment","FollowUp","Doctor","ปัญหา"
-    ]]
-
-    st.dataframe(error_df, use_container_width=True)
-
     # ================= DETAIL =================
-    st.markdown("## 🔍 วิเคราะห์รายเคส")
+    st.markdown("## 🔍 รายละเอียดเคส")
 
     idx = st.selectbox("เลือกเคส", df.index)
     st.write(df.loc[idx])
 
-    st.markdown("### 🧾 ปัญหาเคสนี้")
-    st.warning(df.loc[idx, "ปัญหา"])
+    # ================= 🧾 STATUS CASE (FIXED NAME) =================
+    st.markdown("## 🧾 สถานะเคส")
+
+    fields = {
+        "ICD-10": df.loc[idx, "ICD"],
+        "Diagnosis": df.loc[idx, "DX"],
+        "Treatment": df.loc[idx, "TX"],
+        "Follow-up": df.loc[idx, "FU"],
+        "Doctor": df.loc[idx, "DR"]
+    }
+
+    for k,v in fields.items():
+        if v == "ถูกต้อง":
+            st.success(f"{k}: ผ่าน")
+        elif v == "ไม่มีข้อมูล":
+            st.warning(f"{k}: ไม่มีข้อมูล (ควรกรอก)")
+        else:
+            st.error(f"{k}: ต้องแก้ ({v})")
 
     # ================= EXPORT =================
     def export(df):
 
         output = io.BytesIO()
-        now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
         summary = pd.DataFrame({
             "รายการ":[
-                "ทั้งหมด","คะแนนเฉลี่ย","ผ่าน","เฝ้าระวัง","ต้องแก้","วันที่"
+                "ทั้งหมด","คะแนนเฉลี่ย","ผ่าน","เฝ้าระวัง","ต้องแก้"
             ],
             "ค่า":[
                 len(df),
                 df["คะแนนได้"].mean(),
                 len(df[df["สถานะ"]=="🟢 ผ่านเกณฑ์"]),
                 len(df[df["สถานะ"]=="🟡 เฝ้าระวัง"]),
-                len(df[df["สถานะ"]=="🔴 ต้องแก้ไข"]),
-                now
+                len(df[df["สถานะ"]=="🔴 ต้องแก้ไข"])
             ]
         })
 
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             df.to_excel(writer, index=False, sheet_name="DATA")
-            error_df.to_excel(writer, index=False, sheet_name="ERROR")
             summary.to_excel(writer, index=False, sheet_name="SUMMARY")
 
         return output.getvalue()
@@ -185,8 +161,8 @@ if file:
     st.markdown("## 📤 ดาวน์โหลดรายงาน")
 
     st.download_button(
-        "⬇️ ดาวน์โหลด MRA OPD PRO FINAL",
+        "⬇️ ดาวน์โหลด MRA OPD REPORT",
         data=export(df),
-        file_name=f"MRA_OPD_PRO_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+        file_name=f"MRA_OPD_REALTIME_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
