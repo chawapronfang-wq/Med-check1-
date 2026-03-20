@@ -10,12 +10,12 @@ st.set_page_config(page_title="MRA OPD REALTIME", layout="wide")
 st.markdown("""
 <div style="background:linear-gradient(90deg,#0f3057,#008891);
 padding:18px;border-radius:12px;color:white;font-size:22px">
-🏥 MRA OPD REALTIME DASHBOARD (ULTIMATE FIX)
+🏥 MRA OPD REALTIME DASHBOARD (FINAL STABLE)
 </div>
 """, unsafe_allow_html=True)
 
 # ================= LOGIN =================
-users = {"admin":"1234"}
+users = {"admin": "1234"}
 
 if "login" not in st.session_state:
     st.session_state.login = False
@@ -88,14 +88,14 @@ if file:
             return "❌ ไม่มีข้อมูล"
         if bad_text(v):
             return "❌ ข้อมูลผิดปกติ"
-        return "ถูกต้อง" if re.match(r"^[A-Z][0-9]{2,3}$", v) else "ผิดรูปแบบ"
+        return "⚠️" if not re.match(r"^[A-Z][0-9]{2,3}$", v) else "✅"
 
     def txt(v):
         if v == MISSING:
             return "❌ ไม่มีข้อมูล"
         if bad_text(v):
             return "❌ ข้อมูลผิดปกติ"
-        return "ถูกต้อง" if len(v) >= 3 else "ข้อมูลไม่ครบ"
+        return "⚠️" if len(v) < 3 else "✅"
 
     df["ICD"] = icd_raw.apply(icd)
     df["DX"]  = dx_raw.apply(txt)
@@ -103,39 +103,60 @@ if file:
     df["FU"]  = fu_raw.apply(txt)
     df["DR"]  = dr_raw.apply(txt)
 
-    df["AGE"] = age_raw.apply(lambda x: "ถูกต้อง" if not bad_age(x) else "❌ ผิดปกติ")
+    df["อายุ"] = age_raw.apply(lambda x:
+        "❌ ผิดปกติ" if bad_age(x) else "✅"
+    )
 
-    df["SEX"] = sex_raw.apply(lambda x:
-        "ถูกต้อง" if (not bad_text(x) and str(x).lower() in ["male","female","ชาย","หญิง"])
-        else "❌ ผิดปกติ"
+    df["เพศ"] = sex_raw.apply(lambda x:
+        "❌ ผิดปกติ" if bad_text(x) or str(x).lower() not in ["male","female","ชาย","หญิง"]
+        else "✅"
     )
 
     # ================= SCORE =================
     def score(r):
-        items = [r["ICD"], r["DX"], r["TX"], r["FU"], r["DR"], r["AGE"], r["SEX"]]
+        items = [r["ICD"], r["DX"], r["TX"], r["FU"], r["DR"], r["อายุ"], r["เพศ"]]
+
         total = len(items)
-        ok = sum(1 for i in items if i == "ถูกต้อง")
-        return pd.Series([total, ok, (ok/total)*100])
+        ok = sum(1 for i in items if i == "✅")
+        warn = sum(1 for i in items if i == "⚠️")
+
+        percent = ((ok + warn * 0.5) / total) * 100
+
+        return pd.Series([total, ok, warn, percent])
 
     df[["เต็ม","ได้","%"]] = df.apply(score, axis=1)
 
     # ================= STATUS =================
     def status(x):
-        if x >= 80:
-            return "🟢 ผ่าน"
-        elif x >= 60:
+        if x >= 85:
+            return "🟢 ผ่านเกณฑ์"
+        elif x >= 65:
             return "🟡 เฝ้าระวัง"
-        return "🔴 ต้องแก้"
+        return "🔴 ต้องแก้ไข"
 
     df["สถานะ"] = df["%"].apply(status)
 
     # ================= ISSUES =================
     def issues(row):
         err = []
-        for k in ["ICD","DX","TX","FU","DR","AGE","SEX"]:
+
+        mapping = {
+            "ICD":"รหัสโรค",
+            "DX":"วินิจฉัย",
+            "TX":"การรักษา",
+            "FU":"ติดตาม",
+            "DR":"แพทย์",
+            "อายุ":"อายุ",
+            "เพศ":"เพศ"
+        }
+
+        for k,v in mapping.items():
             if "❌" in str(row[k]):
-                err.append(k)
-        return " / ".join(err) if err else "-"
+                err.append(f"{v}(ผิด)")
+            elif "⚠️" in str(row[k]):
+                err.append(f"{v}(ควรตรวจ)")
+
+        return " / ".join(err) if err else "ไม่มีปัญหา"
 
     df["จุดที่ต้องแก้"] = df.apply(issues, axis=1)
 
@@ -145,13 +166,13 @@ if file:
     c1,c2,c3 = st.columns(3)
     c1.metric("จำนวนเคส", len(df))
     c2.metric("คะแนนเฉลี่ย", f"{df['ได้'].mean():.2f}")
-    c3.metric("% ผ่าน", f"{len(df[df['สถานะ']=='🟢 ผ่าน'])/len(df)*100:.2f}")
+    c3.metric("% ผ่าน", f"{len(df[df['สถานะ']=='🟢 ผ่านเกณฑ์'])/len(df)*100:.2f}")
 
     # ================= GRAPH =================
-    st.markdown("## 📊 กราฟสถานะ")
+    st.markdown("## 📊 กราฟ")
 
     st.bar_chart(df["สถานะ"].value_counts().reindex(
-        ["🟢 ผ่าน","🟡 เฝ้าระวัง","🔴 ต้องแก้"],
+        ["🟢 ผ่านเกณฑ์","🟡 เฝ้าระวัง","🔴 ต้องแก้ไข"],
         fill_value=0
     ))
 
@@ -159,7 +180,7 @@ if file:
     st.markdown("## 📋 ตาราง")
 
     def color(row):
-        if row["สถานะ"] == "🟢 ผ่าน":
+        if row["สถานะ"] == "🟢 ผ่านเกณฑ์":
             return ["background-color:#d4edda"] * len(row)
         if row["สถานะ"] == "🟡 เฝ้าระวัง":
             return ["background-color:#fff3cd"] * len(row)
@@ -176,11 +197,14 @@ if file:
 
     st.markdown("## 🧾 สถานะเคส")
 
-    if df.loc[idx,"สถานะ"] == "🟢 ผ่าน":
-        st.success("🟢 ผ่านทั้งหมด")
+    if df.loc[idx,"สถานะ"].startswith("🟢"):
+        st.success("🟢 ผ่านเกณฑ์")
+    elif df.loc[idx,"สถานะ"].startswith("🟡"):
+        st.warning("⚠️ เฝ้าระวัง")
     else:
-        st.error(df.loc[idx,"สถานะ"])
-        st.warning("⚠️ จุดที่ต้องแก้: " + df.loc[idx,"จุดที่ต้องแก้"])
+        st.error("🔴 ต้องแก้ไข")
+
+    st.info("📌 จุดที่ต้องแก้: " + df.loc[idx,"จุดที่ต้องแก้"])
 
     # ================= EXPORT =================
     def export(df):
@@ -192,9 +216,9 @@ if file:
             "ค่า":[
                 len(df),
                 df["ได้"].mean(),
-                len(df[df["สถานะ"]=="🟢 ผ่าน"]),
+                len(df[df["สถานะ"]=="🟢 ผ่านเกณฑ์"]),
                 len(df[df["สถานะ"]=="🟡 เฝ้าระวัง"]),
-                len(df[df["สถานะ"]=="🔴 ต้องแก้"])
+                len(df[df["สถานะ"]=="🔴 ต้องแก้ไข"])
             ]
         })
 
