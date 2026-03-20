@@ -10,7 +10,7 @@ st.set_page_config(page_title="MRA OPD REALTIME", layout="wide")
 st.markdown("""
 <div style="background:linear-gradient(90deg,#0f3057,#008891);
 padding:18px;border-radius:12px;color:white;font-size:22px">
-🏥 MRA OPD REALTIME DASHBOARD (FINAL FIX)
+🏥 MRA OPD REALTIME DASHBOARD (ULTIMATE FIX)
 </div>
 """, unsafe_allow_html=True)
 
@@ -33,7 +33,7 @@ if not st.session_state.login:
             st.error("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
     st.stop()
 
-# ================= MISSING HANDLER =================
+# ================= MISSING =================
 MISSING = "❌ ไม่มีข้อมูล"
 
 def clean(v):
@@ -41,7 +41,27 @@ def clean(v):
         return MISSING
     if str(v).strip() == "" or str(v).lower() == "nan":
         return MISSING
-    return v
+    return str(v)
+
+# ================= DATA QUALITY CHECK =================
+def bad_text(v):
+    v = str(v)
+    if v == MISSING:
+        return True
+    if "�" in v or "??" in v:
+        return True
+    if re.fullmatch(r"[^a-zA-Z0-9ก-๙]+", v):
+        return True
+    return False
+
+def bad_age(v):
+    if v == MISSING:
+        return True
+    try:
+        v = float(v)
+        return v < 0 or v > 120
+    except:
+        return True
 
 # ================= UPLOAD =================
 file = st.file_uploader("📁 อัปโหลดไฟล์ OPD", type=["csv","xlsx"])
@@ -49,14 +69,10 @@ file = st.file_uploader("📁 อัปโหลดไฟล์ OPD", type=["csv
 if file:
 
     df = pd.read_csv(file) if file.name.endswith("csv") else pd.read_excel(file)
-
     df = df.applymap(clean)
 
-    # ================= SAFE GET =================
     def get(col):
-        if col in df.columns:
-            return df[col]
-        return pd.Series([MISSING] * len(df))
+        return df[col] if col in df.columns else pd.Series([MISSING]*len(df))
 
     icd_raw = get("DiagnosisCode")
     dx_raw  = get("DiagnosisText")
@@ -66,40 +82,40 @@ if file:
     age_raw = get("Age")
     sex_raw = get("Sex")
 
-    # ================= CHECK =================
+    # ================= FIELD CHECK =================
     def icd(v):
         if v == MISSING:
             return "❌ ไม่มีข้อมูล"
-        return "ถูกต้อง" if re.match(r"^[A-Z][0-9]{2,3}$", str(v)) else "ผิดรูปแบบ"
+        if bad_text(v):
+            return "❌ ข้อมูลผิดปกติ"
+        return "ถูกต้อง" if re.match(r"^[A-Z][0-9]{2,3}$", v) else "ผิดรูปแบบ"
 
     def txt(v):
         if v == MISSING:
             return "❌ ไม่มีข้อมูล"
-        return "ถูกต้อง" if len(str(v)) >= 3 else "ข้อมูลไม่ครบ"
-
-    def basic(v):
-        if v == MISSING:
-            return "❌ ไม่มีข้อมูล"
-        return "ถูกต้อง"
+        if bad_text(v):
+            return "❌ ข้อมูลผิดปกติ"
+        return "ถูกต้อง" if len(v) >= 3 else "ข้อมูลไม่ครบ"
 
     df["ICD"] = icd_raw.apply(icd)
     df["DX"]  = dx_raw.apply(txt)
     df["TX"]  = tx_raw.apply(txt)
     df["FU"]  = fu_raw.apply(txt)
     df["DR"]  = dr_raw.apply(txt)
-    df["AGE"] = age_raw.apply(basic)
-    df["SEX"] = sex_raw.apply(basic)
+
+    df["AGE"] = age_raw.apply(lambda x: "ถูกต้อง" if not bad_age(x) else "❌ ผิดปกติ")
+
+    df["SEX"] = sex_raw.apply(lambda x:
+        "ถูกต้อง" if (not bad_text(x) and str(x).lower() in ["male","female","ชาย","หญิง"])
+        else "❌ ผิดปกติ"
+    )
 
     # ================= SCORE =================
     def score(r):
-        items = [
-            r["ICD"], r["DX"], r["TX"], r["FU"],
-            r["DR"], r["AGE"], r["SEX"]
-        ]
+        items = [r["ICD"], r["DX"], r["TX"], r["FU"], r["DR"], r["AGE"], r["SEX"]]
         total = len(items)
-        got = sum(1 for i in items if i == "ถูกต้อง")
-        percent = (got / total) * 100
-        return pd.Series([total, got, percent])
+        ok = sum(1 for i in items if i == "ถูกต้อง")
+        return pd.Series([total, ok, (ok/total)*100])
 
     df[["เต็ม","ได้","%"]] = df.apply(score, axis=1)
 
@@ -113,38 +129,31 @@ if file:
 
     df["สถานะ"] = df["%"].apply(status)
 
-    # ================= FIND ISSUES =================
-    def จุดที่ต้องแก้(row):
-        issues = []
+    # ================= ISSUES =================
+    def issues(row):
+        err = []
+        for k in ["ICD","DX","TX","FU","DR","AGE","SEX"]:
+            if "❌" in str(row[k]):
+                err.append(k)
+        return " / ".join(err) if err else "-"
 
-        if row["ICD"] != "ถูกต้อง": issues.append("ICD-10")
-        if row["DX"]  != "ถูกต้อง": issues.append("Diagnosis")
-        if row["TX"]  != "ถูกต้อง": issues.append("Treatment")
-        if row["FU"]  != "ถูกต้อง": issues.append("Follow-up")
-        if row["DR"]  != "ถูกต้อง": issues.append("Doctor")
-        if row["AGE"] != "ถูกต้อง": issues.append("อายุ")
-        if row["SEX"] != "ถูกต้อง": issues.append("เพศ")
-
-        return " / ".join(issues) if issues else "-"
+    df["จุดที่ต้องแก้"] = df.apply(issues, axis=1)
 
     # ================= DASHBOARD =================
-    st.markdown("## 📊 KPI Dashboard")
+    st.markdown("## 📊 KPI")
 
     c1,c2,c3 = st.columns(3)
-
     c1.metric("จำนวนเคส", len(df))
     c2.metric("คะแนนเฉลี่ย", f"{df['ได้'].mean():.2f}")
     c3.metric("% ผ่าน", f"{len(df[df['สถานะ']=='🟢 ผ่าน'])/len(df)*100:.2f}")
 
     # ================= GRAPH =================
-    st.markdown("## 📊 กราฟ")
+    st.markdown("## 📊 กราฟสถานะ")
 
-    chart = df["สถานะ"].value_counts().reindex(
+    st.bar_chart(df["สถานะ"].value_counts().reindex(
         ["🟢 ผ่าน","🟡 เฝ้าระวัง","🔴 ต้องแก้"],
         fill_value=0
-    )
-
-    st.bar_chart(chart)
+    ))
 
     # ================= TABLE =================
     st.markdown("## 📋 ตาราง")
@@ -152,7 +161,7 @@ if file:
     def color(row):
         if row["สถานะ"] == "🟢 ผ่าน":
             return ["background-color:#d4edda"] * len(row)
-        elif row["สถานะ"] == "🟡 เฝ้าระวัง":
+        if row["สถานะ"] == "🟡 เฝ้าระวัง":
             return ["background-color:#fff3cd"] * len(row)
         return ["background-color:#f8d7da"] * len(row)
 
@@ -165,16 +174,13 @@ if file:
 
     st.write(df.loc[idx])
 
-    # ================= STATUS CASE =================
     st.markdown("## 🧾 สถานะเคส")
 
-    issues = จุดที่ต้องแก้(df.loc[idx])
-
-    if df.loc[idx, "สถานะ"] == "🟢 ผ่าน":
-        st.success("🟢 ผ่าน")
+    if df.loc[idx,"สถานะ"] == "🟢 ผ่าน":
+        st.success("🟢 ผ่านทั้งหมด")
     else:
-        st.error(df.loc[idx, "สถานะ"])
-        st.warning(f"⚠️ จุดที่ต้องแก้: {issues}")
+        st.error(df.loc[idx,"สถานะ"])
+        st.warning("⚠️ จุดที่ต้องแก้: " + df.loc[idx,"จุดที่ต้องแก้"])
 
     # ================= EXPORT =================
     def export(df):
@@ -198,10 +204,10 @@ if file:
 
         return output.getvalue()
 
-    st.markdown("## 📤 ดาวน์โหลดรายงาน")
+    st.markdown("## 📤 ดาวน์โหลด")
 
     st.download_button(
-        "⬇️ ดาวน์โหลด MRA OPD REPORT",
+        "⬇️ Export MRA OPD",
         data=export(df),
         file_name=f"MRA_OPD_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
