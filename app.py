@@ -17,8 +17,10 @@ st.set_page_config(page_title="MRA OPD", layout="wide")
 st.markdown("""
 <style>
 .main {background-color:#f4f8fb;}
-.header {background:linear-gradient(90deg,#0f3057,#008891);padding:20px;border-radius:12px;color:white;}
-.card {background:white;padding:18px;border-radius:12px;margin-bottom:15px;box-shadow:0px 4px 12px rgba(0,0,0,0.08);}
+.header {
+    background:linear-gradient(90deg,#0f3057,#008891);
+    padding:20px;border-radius:12px;color:white;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -29,15 +31,16 @@ if "login" not in st.session_state:
     st.session_state.login = False
 
 def login():
-    st.markdown("## 🔐 Login")
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
-    if st.button("Login"):
+    st.markdown("## 🔐 เข้าสู่ระบบ")
+    u = st.text_input("ชื่อผู้ใช้")
+    p = st.text_input("รหัสผ่าน", type="password")
+
+    if st.button("เข้าสู่ระบบ"):
         if u in users and users[u]["password"] == p:
             st.session_state.login = True
             st.rerun()
         else:
-            st.error("Login failed")
+            st.error("❌ เข้าสู่ระบบไม่สำเร็จ")
 
 if not st.session_state.login:
     login()
@@ -59,22 +62,27 @@ CREATE TABLE IF NOT EXISTS mra (
 conn.commit()
 
 # ================= HEADER =================
-st.markdown('<div class="header"><h2>🏥 MRA OPD SYSTEM</h2></div>', unsafe_allow_html=True)
+st.markdown("""
+<div class="header">
+<h2>🏥 ระบบตรวจสอบเวชระเบียนผู้ป่วยนอก (MRA OPD)</h2>
+</div>
+""", unsafe_allow_html=True)
 
-menu = st.sidebar.radio("📂 Menu", ["🏠 Home", "📊 Analyze"])
+# ================= MENU =================
+menu = st.sidebar.radio("📂 เมนู", ["🏠 หน้าแรก", "📊 ตรวจสอบข้อมูล"])
 
-if st.sidebar.button("Logout"):
+if st.sidebar.button("ออกจากระบบ"):
     st.session_state.clear()
     st.rerun()
 
 # ================= HOME =================
-if menu == "🏠 Home":
-    st.success("ระบบพร้อมใช้งาน")
+if menu == "🏠 หน้าแรก":
+    st.success("✅ ระบบพร้อมใช้งานสำหรับตรวจสอบเวชระเบียนผู้ป่วยนอก (MRA OPD)")
 
 # ================= ANALYZE =================
-elif menu == "📊 Analyze":
+elif menu == "📊 ตรวจสอบข้อมูล":
 
-    file = st.file_uploader("Upload file", type=["csv", "xlsx"])
+    file = st.file_uploader("📁 อัปโหลดไฟล์ข้อมูล (Excel / CSV)", type=["csv","xlsx"])
 
     if file:
 
@@ -122,10 +130,10 @@ elif menu == "📊 Analyze":
         # ================= SCORE =================
         criteria = {
             "Diagnosis_error":{"name":"ICD-10","score":30},
-            "DiagnosisText_error":{"name":"Diagnosis","score":20},
-            "Treatment_error":{"name":"Treatment","score":20},
-            "FollowUp_error":{"name":"FollowUp","score":15},
-            "Doctor_error":{"name":"Doctor","score":15}
+            "DiagnosisText_error":{"name":"คำวินิจฉัย","score":20},
+            "Treatment_error":{"name":"การรักษา","score":20},
+            "FollowUp_error":{"name":"การนัดติดตาม","score":15},
+            "Doctor_error":{"name":"แพทย์","score":15}
         }
 
         def calc(row):
@@ -138,16 +146,17 @@ elif menu == "📊 Analyze":
         df["MRA_Score"] = df.apply(calc, axis=1)
 
         df["MRA_Level"] = df["MRA_Score"].apply(
-            lambda x: "Good 🟢" if x>=90 else "Fair 🟡" if x>=70 else "Poor 🔴"
+            lambda x: "ดี 🟢" if x>=90 else "พอใช้ 🟡" if x>=70 else "ต้องปรับปรุง 🔴"
         )
 
         # ================= KPI =================
         c1,c2,c3,c4 = st.columns(4)
 
-        c1.metric("Cases", len(df))
-        c2.metric("Avg Score", round(df["MRA_Score"].mean(),2))
-        c3.metric("Error Avg", round(df["Error_Count"].mean(),2))
-        c4.metric("Good %", round(len(df[df["MRA_Level"]=="Good 🟢"])/len(df)*100,2))
+        c1.metric("จำนวนเคส", len(df))
+        c2.metric("คะแนนเฉลี่ย", round(df["MRA_Score"].mean(),2))
+        c3.metric("Error เฉลี่ย", round(df["Error_Count"].mean(),2))
+        c4.metric("ผ่านเกณฑ์ (%)",
+                  round(len(df[df["MRA_Level"]=="ดี 🟢"])/len(df)*100,2))
 
         st.bar_chart(df["MRA_Level"].value_counts())
 
@@ -155,18 +164,35 @@ elif menu == "📊 Analyze":
         filtered = df.copy()
 
         if "Doctor" in df.columns:
-            doc = st.selectbox("Doctor", ["All"]+list(df["Doctor"].dropna().unique()))
-            if doc!="All":
+            doc = st.selectbox("👨‍⚕️ เลือกแพทย์", ["ทั้งหมด"]+list(df["Doctor"].dropna().unique()))
+            if doc != "ทั้งหมด":
                 filtered = filtered[filtered["Doctor"]==doc]
 
-        level = st.selectbox("Level", ["All","Good 🟢","Fair 🟡","Poor 🔴"])
-        if level!="All":
+        level = st.selectbox("📊 ระดับผลการประเมิน", ["ทั้งหมด","ดี 🟢","พอใช้ 🟡","ต้องปรับปรุง 🔴"])
+        if level != "ทั้งหมด":
             filtered = filtered[filtered["MRA_Level"]==level]
 
-        # ================= CASE =================
-        st.markdown("## Case Detail")
+        # ================= HIGHLIGHT =================
+        def color_highlight(val):
+            if val == "Missing":
+                return "background-color:#FFD6D6;color:#B00020;font-weight:bold"
+            if val == "Invalid":
+                return "background-color:#FFE5B4;color:#8A4B00;font-weight:bold"
+            if val == "OK":
+                return "background-color:#D4F8D4;color:#0B6B0B;font-weight:bold"
+            return ""
 
-        idx = st.selectbox("Select Case", filtered.index)
+        st.markdown("## 🔍 ตารางตรวจสอบข้อมูล")
+
+        st.dataframe(
+            filtered.style.map(color_highlight, subset=error_cols),
+            use_container_width=True
+        )
+
+        # ================= CASE DETAIL =================
+        st.markdown("## 🧾 รายละเอียดรายเคส")
+
+        idx = st.selectbox("เลือกเคส", filtered.index)
         case = filtered.loc[idx]
 
         detail = []
@@ -180,10 +206,10 @@ elif menu == "📊 Analyze":
                 got += score
                 detail.append([v["name"], v["score"], score, case[col]])
 
-        st.write(f"Score: {got}/{total} ({(got/total*100):.2f}%)")
-        st.dataframe(pd.DataFrame(detail, columns=["Item","Full","Got","Status"]))
+        st.write(f"📊 คะแนน: {got}/{total} ({(got/total*100):.2f}%)")
+        st.dataframe(pd.DataFrame(detail, columns=["หัวข้อ","คะแนนเต็ม","คะแนนที่ได้","สถานะ"]))
 
-        # ================= EXPORT PDF =================
+        # ================= PDF =================
         def export_pdf(detail, got, total):
             buffer = BytesIO()
             doc = SimpleDocTemplate(buffer)
@@ -191,11 +217,11 @@ elif menu == "📊 Analyze":
             styles = getSampleStyleSheet()
             content = []
 
-            content.append(Paragraph("MRA OPD REPORT", styles["Title"]))
-            content.append(Paragraph(f"Date: {datetime.now()}", styles["Normal"]))
+            content.append(Paragraph("รายงาน MRA OPD", styles["Title"]))
+            content.append(Paragraph(f"วันที่: {datetime.now()}", styles["Normal"]))
             content.append(Spacer(1, 10))
 
-            table = [["Item","Full","Got","Status"]] + detail
+            table = [["หัวข้อ","เต็ม","ได้","สถานะ"]] + detail
 
             t = Table(table)
             t.setStyle(TableStyle([
@@ -210,26 +236,24 @@ elif menu == "📊 Analyze":
             buffer.seek(0)
             return buffer
 
-        if st.button("Export PDF"):
+        if st.button("📄 ออกรายงาน PDF"):
             pdf = export_pdf(detail, got, total)
-            st.download_button("Download PDF", pdf, "mra_report.pdf")
+            st.download_button("ดาวน์โหลด PDF", pdf, "mra_report.pdf")
 
-        # ================= EXPORT EXCEL =================
+        # ================= EXCEL =================
         def export_excel(df):
             buffer = BytesIO()
-
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                df.to_excel(writer, sheet_name="Data", index=False)
-
+                df.to_excel(writer, sheet_name="ข้อมูล", index=False)
             buffer.seek(0)
             return buffer
 
-        if st.button("Export Excel"):
+        if st.button("📊 ออก Excel"):
             xls = export_excel(df)
-            st.download_button("Download Excel", xls, "mra.xlsx")
+            st.download_button("ดาวน์โหลด Excel", xls, "mra.xlsx")
 
         # ================= SAVE DB =================
-        if st.button("Save to DB"):
+        if st.button("💾 บันทึกลงฐานข้อมูล"):
             for _, r in df.iterrows():
                 c.execute("""
                 INSERT INTO mra (doctor, score, error_count, level)
@@ -241,4 +265,4 @@ elif menu == "📊 Analyze":
                     r["MRA_Level"]
                 ))
             conn.commit()
-            st.success("Saved")
+            st.success("บันทึกสำเร็จ")
