@@ -10,7 +10,7 @@ st.set_page_config(page_title="MRA OPD REALTIME", layout="wide")
 st.markdown("""
 <div style="background:linear-gradient(90deg,#0f3057,#008891);
 padding:18px;border-radius:12px;color:white;font-size:22px">
-🏥 MRA OPD REALTIME DASHBOARD (FINAL STABLE)
+🏥 MRA OPD REALTIME DASHBOARD (ANTI-CRASH)
 </div>
 """, unsafe_allow_html=True)
 
@@ -33,17 +33,18 @@ if not st.session_state.login:
             st.error("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
     st.stop()
 
-# ================= MISSING =================
+# ================= SAFE CONSTANT =================
 MISSING = "❌ ไม่มีข้อมูล"
 
+# ================= CLEAN =================
 def clean(v):
     if v is None:
         return MISSING
-    if str(v).strip() == "" or str(v).lower() == "nan":
+    v = str(v).strip()
+    if v == "" or v.lower() == "nan":
         return MISSING
-    return str(v)
+    return v
 
-# ================= DATA QUALITY CHECK =================
 def bad_text(v):
     v = str(v)
     if v == MISSING:
@@ -64,11 +65,12 @@ def bad_age(v):
         return True
 
 # ================= UPLOAD =================
-file = st.file_uploader("📁 อัปโหลดไฟล์ OPD", type=["csv","xlsx"])
+file = st.file_uploader("📁 อัปโหลด OPD", type=["csv","xlsx"])
 
 if file:
 
     df = pd.read_csv(file) if file.name.endswith("csv") else pd.read_excel(file)
+
     df = df.applymap(clean)
 
     def get(col):
@@ -82,19 +84,15 @@ if file:
     age_raw = get("Age")
     sex_raw = get("Sex")
 
-    # ================= FIELD CHECK =================
+    # ================= CHECK =================
     def icd(v):
-        if v == MISSING:
-            return "❌ ไม่มีข้อมูล"
-        if bad_text(v):
-            return "❌ ข้อมูลผิดปกติ"
+        if v == MISSING: return "❌"
+        if bad_text(v): return "❌"
         return "⚠️" if not re.match(r"^[A-Z][0-9]{2,3}$", v) else "✅"
 
     def txt(v):
-        if v == MISSING:
-            return "❌ ไม่มีข้อมูล"
-        if bad_text(v):
-            return "❌ ข้อมูลผิดปกติ"
+        if v == MISSING: return "❌"
+        if bad_text(v): return "❌"
         return "⚠️" if len(v) < 3 else "✅"
 
     df["ICD"] = icd_raw.apply(icd)
@@ -103,28 +101,28 @@ if file:
     df["FU"]  = fu_raw.apply(txt)
     df["DR"]  = dr_raw.apply(txt)
 
-    df["อายุ"] = age_raw.apply(lambda x:
-        "❌ ผิดปกติ" if bad_age(x) else "✅"
-    )
+    df["AGE"] = age_raw.apply(lambda x: "❌" if bad_age(x) else "✅")
 
-    df["เพศ"] = sex_raw.apply(lambda x:
-        "❌ ผิดปกติ" if bad_text(x) or str(x).lower() not in ["male","female","ชาย","หญิง"]
+    df["SEX"] = sex_raw.apply(lambda x:
+        "❌" if bad_text(x) or str(x).lower() not in ["male","female","ชาย","หญิง"]
         else "✅"
     )
 
-    # ================= SCORE =================
-    def score(r):
-        items = [r["ICD"], r["DX"], r["TX"], r["FU"], r["DR"], r["อายุ"], r["เพศ"]]
+    # ================= SCORE (FIXED NO CRASH) =================
+    def score(row):
+        items = [row["ICD"], row["DX"], row["TX"], row["FU"], row["DR"], row["AGE"], row["SEX"]]
 
         total = len(items)
         ok = sum(1 for i in items if i == "✅")
         warn = sum(1 for i in items if i == "⚠️")
 
-        percent = ((ok + warn * 0.5) / total) * 100
+        percent = ((ok + warn*0.5) / total) * 100 if total else 0
 
-        return pd.Series([total, ok, warn, percent])
+        return pd.Series([total, ok, percent])
 
-    df[["เต็ม","ได้","%"]] = df.apply(score, axis=1)
+    result = df.apply(score, axis=1)
+    result.columns = ["เต็ม","ได้","%"]
+    df = pd.concat([df, result], axis=1)
 
     # ================= STATUS =================
     def status(x):
@@ -146,15 +144,13 @@ if file:
             "TX":"การรักษา",
             "FU":"ติดตาม",
             "DR":"แพทย์",
-            "อายุ":"อายุ",
-            "เพศ":"เพศ"
+            "AGE":"อายุ",
+            "SEX":"เพศ"
         }
 
         for k,v in mapping.items():
-            if "❌" in str(row[k]):
-                err.append(f"{v}(ผิด)")
-            elif "⚠️" in str(row[k]):
-                err.append(f"{v}(ควรตรวจ)")
+            if row[k] == "❌":
+                err.append(v)
 
         return " / ".join(err) if err else "ไม่มีปัญหา"
 
@@ -197,13 +193,7 @@ if file:
 
     st.markdown("## 🧾 สถานะเคส")
 
-    if df.loc[idx,"สถานะ"].startswith("🟢"):
-        st.success("🟢 ผ่านเกณฑ์")
-    elif df.loc[idx,"สถานะ"].startswith("🟡"):
-        st.warning("⚠️ เฝ้าระวัง")
-    else:
-        st.error("🔴 ต้องแก้ไข")
-
+    st.write("สถานะ:", df.loc[idx,"สถานะ"])
     st.info("📌 จุดที่ต้องแก้: " + df.loc[idx,"จุดที่ต้องแก้"])
 
     # ================= EXPORT =================
