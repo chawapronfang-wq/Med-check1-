@@ -49,7 +49,7 @@ if file:
     df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
 
     # ================= CHECK =================
-    def check_text(v):
+    def check(v):
         if pd.isna(v):
             return "Missing"
         if len(str(v)) < 3:
@@ -63,24 +63,29 @@ if file:
 
     # ================= APPLY =================
     if "DiagnosisCode" in df:
-        df["ICD_Status"] = df["DiagnosisCode"].apply(check_icd)
+        df["ICD"] = df["DiagnosisCode"].apply(check_icd)
 
     if "DiagnosisText" in df:
-        df["Text_Status"] = df["DiagnosisText"].apply(check_text)
+        df["TEXT"] = df["DiagnosisText"].apply(check)
 
-    status_cols = [c for c in df.columns if "Status" in c]
+    status_cols = [c for c in df.columns if c in ["ICD", "TEXT"]]
 
     # ================= SCORE =================
-    def score(row):
-        s = 100
+    def score_row(row):
+        full = len(status_cols) * 50
+        got = 0
+
         for c in status_cols:
-            if row[c] != "OK":
-                s -= 30
-        return max(s, 0)
+            if row[c] == "OK":
+                got += 50
 
-    df["Score"] = df.apply(score, axis=1)
+        percent = (got / full * 100) if full > 0 else 0
 
-    df["ระดับ"] = df["Score"].apply(
+        return pd.Series([full, got, percent])
+
+    df[["คะแนนเต็ม", "คะแนนได้", "เปอร์เซ็นต์"]] = df.apply(score_row, axis=1)
+
+    df["ระดับ"] = df["เปอร์เซ็นต์"].apply(
         lambda x: "ดี 🟢" if x >= 90 else "พอใช้ 🟡" if x >= 70 else "ต้องแก้ไข 🔴"
     )
 
@@ -92,26 +97,26 @@ if file:
         show = show[show["ระดับ"] == level]
 
     # ================= KPI =================
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     c1.metric("จำนวนเคส", len(show))
-    c2.metric("คะแนนเฉลี่ย", f"{show['Score'].mean():.2f}")
+    c2.metric("คะแนนเฉลี่ย", f"{show['คะแนนได้'].mean():.2f}")
+    c3.metric("เปอร์เซ็นต์เฉลี่ย", f"{show['เปอร์เซ็นต์'].mean():.2f}")
 
     st.bar_chart(show["ระดับ"].value_counts())
 
-    # ================= COLOR HIGHLIGHT =================
-    def color(val):
-        if val == "Missing":
-            return "background-color:#fff3cd"   # เหลือง
-        if val == "Invalid":
-            return "background-color:#f8d7da"   # แดง
-        if val == "OK":
-            return "background-color:#d4edda"   # เขียว
-        return ""
+    # ================= COLOR FULL ROW =================
+    def row_color(row):
+        if row["ระดับ"] == "ดี 🟢":
+            return ["background-color:#d4edda"] * len(row)
+        elif row["ระดับ"] == "พอใช้ 🟡":
+            return ["background-color:#fff3cd"] * len(row)
+        else:
+            return ["background-color:#f8d7da"] * len(row)
 
     st.markdown("## 📋 ตารางตรวจสอบ")
 
     st.dataframe(
-        show.style.applymap(color, subset=status_cols),
+        show.style.apply(row_color, axis=1),
         use_container_width=True
     )
 
@@ -121,20 +126,18 @@ if file:
     idx = st.selectbox("เลือกเคส", show.index)
     st.write(show.loc[idx])
 
-    # ================= EXPORT EXCEL =================
+    # ================= EXPORT =================
     def to_excel(data):
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             data.to_excel(writer, index=False, sheet_name='MRA')
         return output.getvalue()
 
-    st.markdown("## 📤 Export")
-
-    excel = to_excel(show)
+    st.markdown("## 📤 Export Excel")
 
     st.download_button(
         "⬇️ ดาวน์โหลด Excel",
-        data=excel,
+        data=to_excel(show),
         file_name="MRA_OPD.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
