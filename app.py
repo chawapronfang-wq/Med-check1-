@@ -1,178 +1,171 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import re
-
-st.set_page_config(page_title="Medical System", layout="wide")
-
-# ================= UI (PINK THEME) =================
-st.markdown("""
-<style>
-.main {background: linear-gradient(180deg,#f8d7e3,#fbe9f1);}
-
-.navbar {
-    display:flex; justify-content:space-between;
-    padding:15px 40px; background:white;
-    border-radius:20px; margin:20px;
-}
-.logo {color:#ff4da6; font-weight:bold; font-size:20px;}
-.menu a {margin:0 10px; color:#444; text-decoration:none;}
-.app-btn {background:#ff4da6;color:white;padding:8px 15px;border-radius:8px;}
-
-.hero-box {background:white;border-radius:25px;margin:20px;padding:40px;}
-.hero {display:flex;justify-content:space-between;align-items:center;}
-.hero-text h1 {font-size:40px;}
-.hero-btn {background:#ff4da6;color:white;padding:10px 20px;border-radius:8px;}
-
-.features {display:flex;justify-content:space-around;margin-top:40px;background:#fde4ee;padding:20px;border-radius:15px;}
-
-#MainMenu {visibility:hidden;} footer {visibility:hidden;} header {visibility:hidden;}
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("""
-<div class="navbar">
-    <div class="logo">💗 BeHealthy</div>
-    <div class="menu">
-        <a>Home</a><a>About</a><a>Service</a>
-        <a>Blog</a><a>Contact</a>
-        <span class="app-btn">APPOINTMENT</span>
-    </div>
-</div>
-
-<div class="hero-box">
-    <div class="hero">
-        <div class="hero-text">
-            <small style="color:#ff4da6;">BE HEALTHY</small>
-            <h1>Renew Vitality<br>Is Within Reach</h1>
-            <p>Medical Record Audit System (MRA) สำหรับตรวจคุณภาพข้อมูล</p>
-            <div class="hero-btn">START</div>
-        </div>
-        <img src="https://images.unsplash.com/photo-1607746882042-944635dfe10e" width="250">
-    </div>
-
-    <div class="features">
-        <div>📅 Schedule</div>
-        <div>🧠 Smart Check</div>
-        <div>💪 Data Quality</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ================= USERS =================
-users = {"admin":{"password":"1234","role":"admin"},"user":{"password":"1234","role":"user"}}
-
-if "login" not in st.session_state:
-    st.session_state.login = False
-
-def login():
-    st.markdown("## 🔐 Login")
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
-
-    if st.button("Login"):
-        if u in users and users[u]["password"] == p:
-            st.session_state.login = True
-            st.session_state.role = users[u]["role"]
-            st.rerun()
-        else:
-            st.error("Login failed")
-
-if not st.session_state.login:
-    login()
-    st.stop()
-
-# ================= SIDEBAR =================
-st.sidebar.markdown("### 🏥 MED CHECK")
-menu = st.sidebar.radio("📂 เมนู", ["🏠 Home","📊 ตรวจข้อมูล"])
-st.sidebar.info("👤 " + st.session_state.role)
-
-if st.sidebar.button("Logout"):
-    st.session_state.clear()
-    st.rerun()
-
-# ================= HOME =================
-if menu == "🏠 Home":
-    st.success("ระบบพร้อมใช้งาน (System Ready)")
-
-# ================= DATA CHECK =================
 elif menu == "📊 ตรวจข้อมูล":
 
-    file = st.file_uploader("📁 Upload file", type=["xlsx","csv"])
+    file = st.file_uploader("📁 อัปโหลดไฟล์", type=["xlsx","csv"])
 
     if file:
-        df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
-        df = df.replace("None", None)
+        try:
+            # ================= READ =================
+            if file.name.endswith(".csv"):
+                df = pd.read_csv(file)
+            else:
+                df = pd.read_excel(file)
 
-        # ===== CHECK FUNCTIONS =====
-        def check_range(val, min_v, max_v):
-            if pd.isna(val): return "Missing"
-            if val < min_v or val > max_v: return "Invalid"
-            return "OK"
+            df = df.replace("None", None)
 
-        def check_icd(code):
-            if pd.isna(code): return "Missing"
-            if re.match(r"^[A-Z][0-9]{2,3}$", str(code)):
+            # ================= BASIC CHECK =================
+            def check_range(val, min_v, max_v):
+                if pd.isna(val): return "Missing"
+                if val < min_v or val > max_v: return "Invalid"
                 return "OK"
-            return "Invalid"
 
-        def check_text(x):
-            if pd.isna(x): return "Missing"
-            if len(str(x)) < 3: return "Invalid"
-            return "OK"
+            def check_gender(g):
+                if pd.isna(g): return "Missing"
+                if g not in ["Male","Female"]: return "Invalid"
+                return "OK"
 
-        # ===== APPLY =====
-        if "Age" in df.columns:
-            df["Age_error"] = df["Age"].apply(lambda x: check_range(x,0,120))
+            def check_date(d):
+                if pd.isna(d): return "Missing"
+                try:
+                    pd.to_datetime(d)
+                    return "OK"
+                except:
+                    return "Invalid"
 
-        if "DiagnosisCode" in df.columns:
-            df["Diag_error"] = df["DiagnosisCode"].apply(check_icd)
+            def check_icd(code):
+                if pd.isna(code): return "Missing"
+                if re.match(r"^[A-Z][0-9]{2,3}$", str(code)):
+                    return "OK"
+                return "Invalid"
 
-        if "DiagnosisText" in df.columns:
-            df["DiagText_error"] = df["DiagnosisText"].apply(check_text)
+            def check_text(x):
+                if pd.isna(x): return "Missing"
+                if len(str(x)) < 3: return "Invalid"
+                return "OK"
 
-        if "FollowUp" in df.columns:
-            df["Follow_error"] = df["FollowUp"].apply(check_text)
+            # ================= APPLY =================
+            if "Age" in df.columns:
+                df["Age_error"] = df["Age"].apply(lambda x: check_range(x,0,120))
 
-        error_cols = [c for c in df.columns if "_error" in c]
+            if "Gender" in df.columns:
+                df["Gender_error"] = df["Gender"].apply(check_gender)
 
-        # ===== MRA SCORE =====
-        def calculate_score(row):
-            total, ok = 0, 0
+            if "VisitDate" in df.columns:
+                df["Date_error"] = df["VisitDate"].apply(check_date)
+
+            if "DiagnosisCode" in df.columns:
+                df["Diagnosis_error"] = df["DiagnosisCode"].apply(check_icd)
+
+            if "DiagnosisText" in df.columns:
+                df["DiagnosisText_error"] = df["DiagnosisText"].apply(check_text)
+
+            if "Treatment" in df.columns:
+                df["Treatment_error"] = df["Treatment"].apply(check_text)
+
+            if "FollowUp" in df.columns:
+                df["FollowUp_error"] = df["FollowUp"].apply(check_text)
+
+            if "Doctor" in df.columns:
+                df["Doctor_error"] = df["Doctor"].apply(check_text)
+
+            error_cols = [c for c in df.columns if "_error" in c]
+
+            # ================= MRA RUBRIC =================
+            weights = {
+                "Diagnosis_error": 0.25,
+                "DiagnosisText_error": 0.20,
+                "Treatment_error": 0.20,
+                "FollowUp_error": 0.15,
+                "Doctor_error": 0.10,
+                "Date_error": 0.05,
+                "Gender_error": 0.05
+            }
+
+            def calculate_score(row):
+                score = 0
+                total_weight = 0
+                for col, w in weights.items():
+                    if col in row:
+                        val = row[col]
+                        if val != "Missing":
+                            total_weight += w
+                            if val == "OK":
+                                score += w
+                return (score / total_weight) * 100 if total_weight else 0
+
+            df["MRA_Score"] = df.apply(calculate_score, axis=1)
+
+            def level(s):
+                return "Good 🟢" if s>=90 else "Fair 🟡" if s>=70 else "Poor 🔴"
+
+            df["MRA_Level"] = df["MRA_Score"].apply(level)
+
+            # ================= ERROR FILTER =================
+            error_mask = False
             for col in error_cols:
-                val = row[col]
-                if val != "Missing":
-                    total += 1
-                    if val == "OK":
-                        ok += 1
-            return (ok/total)*100 if total else 0
+                error_mask |= (df[col] != "OK")
 
-        df["MRA_Score"] = df.apply(calculate_score, axis=1)
+            error_df = df[error_mask]
+            clean_df = df[~error_mask]
 
-        def level(s):
-            return "Good 🟢" if s>=90 else "Fair 🟡" if s>=70 else "Poor 🔴"
+            # ================= DASHBOARD =================
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            c1,c2,c3,c4 = st.columns(4)
+            c1.metric("ทั้งหมด", len(df))
+            c2.metric("ผิดพลาด", len(error_df))
+            c3.metric("ค่าเฉลี่ย", f"{df['MRA_Score'].mean():.2f}%")
+            c4.metric("Good 🟢", (df["MRA_Level"]=="Good 🟢").sum())
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        df["Level"] = df["MRA_Score"].apply(level)
+            # ================= QUALITY =================
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            st.subheader("📈 Data Quality")
 
-        # ===== DASHBOARD =====
-        st.subheader("📊 Dashboard")
-        c1,c2,c3 = st.columns(3)
-        c1.metric("Total", len(df))
-        c2.metric("Avg Score", f"{df['MRA_Score'].mean():.2f}%")
-        c3.metric("Good", (df["Level"]=="Good 🟢").sum())
+            quality = {col:(df[col]=="OK").mean()*100 for col in error_cols}
+            quality_df = pd.DataFrame({"Column":quality.keys(),"Quality":quality.values()})
+            st.bar_chart(quality_df.set_index("Column"))
 
-        # ===== GRAPH =====
-        quality = {}
-        for col in error_cols:
-            quality[col] = (df[col]=="OK").mean()*100
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        quality_df = pd.DataFrame({"Column":quality.keys(),"Quality":quality.values()})
-        st.bar_chart(quality_df.set_index("Column"))
+            # ================= ADVANCED =================
+            st.subheader("📊 Advanced Analytics")
 
-        # ===== TABLE =====
-        st.subheader("📋 Data")
-        st.dataframe(df)
+            st.write("### Score Distribution")
+            st.bar_chart(df["MRA_Level"].value_counts())
 
-        # ===== DOWNLOAD =====
-        st.download_button("📥 Download All", df.to_csv(index=False), "all.csv")
-        st.download_button("📊 MRA Score", df.to_csv(index=False), "mra_score.csv")
+            if "VisitDate" in df.columns:
+                try:
+                    df["VisitDate"] = pd.to_datetime(df["VisitDate"], errors="coerce")
+                    trend = df.groupby(df["VisitDate"].dt.date)["MRA_Score"].mean()
+                    st.line_chart(trend)
+                except:
+                    pass
+
+            # ================= AI SUMMARY =================
+            def ai_summary():
+                total = len(df)
+                poor = (df["MRA_Level"]=="Poor 🔴").sum()
+
+                txt = f"Total: {total} | Poor: {poor}\n\n"
+
+                if poor > total*0.3:
+                    txt += "⚠️ ต้องปรับปรุงเร่งด่วน"
+                elif poor > total*0.1:
+                    txt += "⚠️ ควรปรับปรุงบางส่วน"
+                else:
+                    txt += "✅ คุณภาพดี"
+
+                return txt
+
+            st.warning(ai_summary())
+
+            # ================= TABLE =================
+            st.dataframe(df)
+
+            # ================= DOWNLOAD =================
+            st.download_button("📄 All", df.to_csv(index=False), "all.csv")
+            st.download_button("🚨 Error", error_df.to_csv(index=False), "error.csv")
+            st.download_button("🧹 Clean", clean_df.to_csv(index=False), "clean.csv")
+            st.download_button("📊 Score", df.to_csv(index=False), "mra_score.csv")
+
+        except Exception as e:
+            st.error(f"❌ {e}")
