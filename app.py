@@ -1,189 +1,179 @@
 import streamlit as st
 import pandas as pd
+import re
 import io
+from datetime import datetime
 
-st.set_page_config(page_title="ระบบ MRA OPD", layout="wide")
+st.set_page_config(page_title="MRA OPD REALTIME", layout="wide")
 
-# ================= เข้าสู่ระบบ =================
-ผู้ใช้ = {"admin": "1234"}
+# ================= HEADER =================
+st.markdown("""
+<div style="background:linear-gradient(90deg,#0f3057,#008891);
+padding:18px;border-radius:12px;color:white;font-size:22px">
+🏥 MRA OPD REALTIME DASHBOARD (FIXED)
+</div>
+""", unsafe_allow_html=True)
 
-if "เข้าสู่ระบบแล้ว" not in st.session_state:
-    st.session_state.เข้าสู่ระบบแล้ว = False
+# ================= LOGIN =================
+users = {"admin":"1234"}
 
-if not st.session_state.เข้าสู่ระบบแล้ว:
-    st.title("🔐 เข้าสู่ระบบระบบตรวจเวชระเบียน MRA OPD")
+if "login" not in st.session_state:
+    st.session_state.login = False
 
-    ชื่อผู้ใช้ = st.text_input("ชื่อผู้ใช้")
-    รหัสผ่าน = st.text_input("รหัสผ่าน", type="password")
+if not st.session_state.login:
+    st.title("🔐 เข้าสู่ระบบ")
+    u = st.text_input("ชื่อผู้ใช้")
+    p = st.text_input("รหัสผ่าน", type="password")
 
     if st.button("เข้าสู่ระบบ"):
-        if ชื่อผู้ใช้ in ผู้ใช้ and ผู้ใช้[ชื่อผู้ใช้] == รหัสผ่าน:
-            st.session_state.เข้าสู่ระบบแล้ว = True
+        if users.get(u) == p:
+            st.session_state.login = True
             st.rerun()
         else:
             st.error("ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง")
     st.stop()
 
-# ================= อัปโหลดไฟล์ =================
-ไฟล์ = st.file_uploader("📁 อัปโหลดไฟล์ผู้ป่วย OPD", type=["csv","xlsx"])
+# ================= UPLOAD =================
+file = st.file_uploader("📁 อัปโหลดไฟล์ OPD (CSV / Excel)", type=["csv","xlsx"])
 
-ข้อมูล = None
+if file:
 
-if ไฟล์:
-    ข้อมูล = pd.read_csv(ไฟล์) if ไฟล์.name.endswith("csv") else pd.read_excel(ไฟล์)
-    ข้อมูล = ข้อมูล.fillna("ไม่มีข้อมูล")
+    df = pd.read_csv(file) if file.name.endswith("csv") else pd.read_excel(file)
 
-# ================= ตรวจสอบข้อมูล =================
-if ข้อมูล is None or len(ข้อมูล) == 0:
-    st.warning("⚠️ กรุณาอัปโหลดข้อมูลก่อน")
-    st.stop()
+    # ================= FIX: กัน NaN =================
+    df = df.fillna("")
 
-# ================= เตรียมข้อมูล =================
-for คอลัมน์ in ["ICD","DX","TX","FU","DR"]:
-    if คอลัมน์ not in ข้อมูล.columns:
-        ข้อมูล[คอลัมน์] = "ไม่มีข้อมูล"
-    else:
-        ข้อมูล[คอลัมน์] = ข้อมูล[คอลัมน์].fillna("ไม่มีข้อมูล")
+    # ================= SAFE COLUMN =================
+    def get(col):
+        if col in df.columns:
+            return df[col].fillna("")
+        return pd.Series([""] * len(df))
 
-# ================= ตรวจสอบคุณภาพ =================
-def ตรวจ(v):
-    if v == "ไม่มีข้อมูล":
-        return "ขาดข้อมูล"
-    return "ถูกต้อง" if len(str(v)) >= 3 else "ข้อมูลไม่ครบ"
+    icd_raw = get("DiagnosisCode")
+    dx_raw  = get("DiagnosisText")
+    tx_raw  = get("Treatment")
+    fu_raw  = get("FollowUp")
+    dr_raw  = get("Doctor")
 
-ข้อมูล["ICD_s"] = ข้อมูล["ICD"].apply(ตรวจ)
-ข้อมูล["DX_s"] = ข้อมูล["DX"].apply(ตรวจ)
-ข้อมูล["TX_s"] = ข้อมูล["TX"].apply(ตรวจ)
-ข้อมูล["FU_s"] = ข้อมูล["FU"].apply(ตรวจ)
-ข้อมูล["DR_s"] = ข้อมูล["DR"].apply(ตรวจ)
+    # ================= CHECK =================
+    def icd(v):
+        if v == "":
+            return "ไม่มีข้อมูล"
+        return "ถูกต้อง" if re.match(r"^[A-Z][0-9]{2,3}$", str(v)) else "ผิดรูปแบบ"
 
-# ================= คำนวณคะแนน =================
-def คำนวณแนน(row):
-    รายการ = [row["ICD_s"], row["DX_s"], row["TX_s"], row["FU_s"], row["DR_s"]]
-    เต็ม = len(รายการ)
-    ได้ = sum(1 for i in รายการ if i == "ถูกต้อง")
-    return pd.Series([เต็ม, ได้, (ได้/เต็ม)*100])
+    def txt(v):
+        if v == "":
+            return "ไม่มีข้อมูล"
+        return "ถูกต้อง" if len(str(v)) >= 3 else "ข้อมูลไม่ครบ"
 
-ข้อมูล[["คะแนนเต็ม","คะแนนได้","เปอร์เซ็นต์"]] = ข้อมูล.apply(คำนวณแนน, axis=1)
+    df["ICD"] = icd_raw.apply(icd)
+    df["DX"]  = dx_raw.apply(txt)
+    df["TX"]  = tx_raw.apply(txt)
+    df["FU"]  = fu_raw.apply(txt)
+    df["DR"]  = dr_raw.apply(txt)
 
-# ================= สถานะเคส =================
-def สถานะ(x):
-    if x >= 80:
-        return "🟢 ผ่านเกณฑ์"
-    elif x >= 60:
-        return "🟡 เฝ้าระวัง"
-    return "🔴 ต้องแก้ไข"
+    # ================= SCORE =================
+    def score(r):
+        items = [r["ICD"], r["DX"], r["TX"], r["FU"], r["DR"]]
+        total = len(items)
+        got = sum(1 for i in items if i == "ถูกต้อง")
+        percent = (got / total) * 100 if total > 0 else 0
+        return pd.Series([total, got, percent])
 
-ข้อมูล["สถานะ"] = ข้อมูล["เปอร์เซ็นต์"].apply(สถานะ)
+    df[["คะแนนเต็ม","คะแนนได้","เปอร์เซ็นต์"]] = df.apply(score, axis=1)
 
-# ================= แดชบอร์ด =================
-st.markdown("## 📊 แดชบอร์ด MRA OPD")
+    # ================= STATUS =================
+    def status(x):
+        if x >= 80:
+            return "🟢 ผ่านเกณฑ์"
+        elif x >= 60:
+            return "🟡 เฝ้าระวัง"
+        return "🔴 ต้องแก้ไข"
 
-คอล1, คอล2, คอล3 = st.columns(3)
+    df["สถานะ"] = df["เปอร์เซ็นต์"].apply(status)
 
-คอล1.metric("จำนวนเคส", len(ข้อมูล))
-คอล2.metric("คะแนนเฉลี่ย", f"{ข้อมูล['คะแนนได้'].mean():.2f}")
-คอล3.metric("% ผ่าน", f"{len(ข้อมูล[ข้อมูล['สถานะ']=='🟢 ผ่านเกณฑ์'])/len(ข้อมูล)*100:.2f}")
+    # ================= KPI =================
+    st.markdown("## 📊 KPI Dashboard")
 
-# ================= กราฟ =================
-st.markdown("## 📊 กราฟสถานะเคส")
+    c1, c2, c3 = st.columns(3)
 
-สถานะ_clean = ข้อมูล["สถานะ"].astype(str).str.strip()
+    c1.metric("จำนวนเคส", len(df))
+    c2.metric("คะแนนเฉลี่ย", f"{df['คะแนนได้'].mean():.2f}")
+    c3.metric("% ผ่าน", f"{len(df[df['สถานะ']=='🟢 ผ่านเกณฑ์'])/len(df)*100:.2f}")
 
-สถานะ_clean = สถานะ_clean.replace({
-    "ผ่านเกณฑ์":"🟢 ผ่านเกณฑ์",
-    "เฝ้าระวัง":"🟡 เฝ้าระวัง",
-    "ต้องแก้":"🔴 ต้องแก้ไข"
-})
+    # ================= FIX GRAPH =================
+    st.markdown("## 📊 กราฟสถานะ")
 
-กราฟ = สถานะ_clean.value_counts().reindex(
-    ["🟢 ผ่านเกณฑ์","🟡 เฝ้าระวัง","🔴 ต้องแก้ไข","ไม่มีข้อมูล"],
-    fill_value=0
-)
+    chart = df["สถานะ"].value_counts().reindex(
+        ["🟢 ผ่านเกณฑ์","🟡 เฝ้าระวัง","🔴 ต้องแก้ไข"],
+        fill_value=0
+    )
 
-st.bar_chart(กราฟ)
+    st.bar_chart(chart)
 
-# ================= ตาราง =================
-st.markdown("## 📋 ตารางข้อมูล")
+    # ================= TABLE COLOR =================
+    def color(row):
+        if row["สถานะ"] == "🟢 ผ่านเกณฑ์":
+            return ["background-color:#d4edda"] * len(row)
+        elif row["สถานะ"] == "🟡 เฝ้าระวัง":
+            return ["background-color:#fff3cd"] * len(row)
+        return ["background-color:#f8d7da"] * len(row)
 
-def สี(row):
-    if row["สถานะ"] == "🟢 ผ่านเกณฑ์":
-        return ["background-color:#d4edda"] * len(row)
-    elif row["สถานะ"] == "🟡 เฝ้าระวัง":
-        return ["background-color:#fff3cd"] * len(row)
-    return ["background-color:#f8d7da"] * len(row)
+    st.markdown("## 📋 ตารางข้อมูล")
+    st.dataframe(df.style.apply(color, axis=1), use_container_width=True)
 
-st.dataframe(ข้อมูล.style.apply(สี, axis=1), use_container_width=True)
+    # ================= DETAIL =================
+    st.markdown("## 🔍 รายละเอียดเคส")
 
-# ================= รายละเอียดเคส =================
-st.markdown("## 🧾 สถานะเคสรายรายการ")
+    idx = st.selectbox("เลือกเคส", df.index)
+    st.write(df.loc[idx])
 
-เลือก = st.selectbox("เลือกเคส", ข้อมูล.index)
+    # ================= STATUS FIX =================
+    st.markdown("## 🧾 สถานะเคส")
 
-เคส = {
-    "ICD": ข้อมูล.loc[เลือก,"ICD_s"],
-    "การวินิจฉัย": ข้อมูล.loc[เลือก,"DX_s"],
-    "การรักษา": ข้อมูล.loc[เลือก,"TX_s"],
-    "การติดตาม": ข้อมูล.loc[เลือก,"FU_s"],
-    "แพทย์": ข้อมูล.loc[เลือก,"DR_s"]
-}
-
-for k,v in เคส.items():
-    if v == "ถูกต้อง":
-        st.success(f"{k}: ผ่าน")
-    elif v == "ขาดข้อมูล":
-        st.warning(f"{k}: ไม่มีข้อมูล")
-    else:
-        st.error(f"{k}: ต้องแก้ไข")
-
-# ================= รายงานส่งออก =================
-def ส่งออกรายงาน(ข้อมูล, idx):
-
-    output = io.BytesIO()
-    row = ข้อมูล.loc[idx]
-
-    รายการ = {
-        "ICD": row["ICD_s"],
-        "การวินิจฉัย": row["DX_s"],
-        "การรักษา": row["TX_s"],
-        "การติดตาม": row["FU_s"],
-        "แพทย์": row["DR_s"]
+    fields = {
+        "ICD-10": df.loc[idx,"ICD"],
+        "Diagnosis": df.loc[idx,"DX"],
+        "Treatment": df.loc[idx,"TX"],
+        "Follow-up": df.loc[idx,"FU"],
+        "Doctor": df.loc[idx,"DR"]
     }
 
-    รายงาน = []
-    ผ่าน = 0
-    ทั้งหมด = len(รายการ)
-
-    for k,v in รายการ.items():
-
+    for k,v in fields.items():
         if v == "ถูกต้อง":
-            รายงาน.append([k,"ผ่าน","ถูกต้องตามเกณฑ์ MRA"])
-            ผ่าน += 1
-        elif v == "ขาดข้อมูล":
-            รายงาน.append([k,"ไม่ผ่าน","ควรบันทึกข้อมูลให้ครบ"])
+            st.success(f"{k}: ผ่าน")
+        elif v == "ไม่มีข้อมูล":
+            st.warning(f"{k}: ไม่มีข้อมูล (ควรกรอก)")
         else:
-            รายงาน.append([k,"ไม่ผ่าน","ต้องแก้ไขข้อมูล"])
+            st.error(f"{k}: ต้องแก้ ({v})")
 
-    คะแนน = (ผ่าน/ทั้งหมด)*100
+    # ================= EXPORT FIX =================
+    def export(df):
 
-    สรุป = pd.DataFrame({
-        "หัวข้อ":["คะแนนรวม","สถานะ"],
-        "ผล":[f"{ผ่าน}/{ทั้งหมด} ({คะแนน:.2f}%)","ผ่าน" if คะแนน>=80 else "ไม่ผ่าน"]
-    })
+        output = io.BytesIO()
 
-    รายละเอียด = pd.DataFrame(รายงาน, columns=["หัวข้อ","สถานะ","คำแนะนำ"])
+        summary = pd.DataFrame({
+            "รายการ":["ทั้งหมด","คะแนนเฉลี่ย","ผ่าน","เฝ้าระวัง","ต้องแก้"],
+            "ค่า":[
+                len(df),
+                df["คะแนนได้"].mean(),
+                len(df[df["สถานะ"]=="🟢 ผ่านเกณฑ์"]),
+                len(df[df["สถานะ"]=="🟡 เฝ้าระวัง"]),
+                len(df[df["สถานะ"]=="🔴 ต้องแก้ไข"])
+            ]
+        })
 
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        สรุป.to_excel(writer,index=False,sheet_name="สรุป")
-        รายละเอียด.to_excel(writer,index=False,sheet_name="ตรวจสอบ")
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="DATA")
+            summary.to_excel(writer, index=False, sheet_name="SUMMARY")
 
-    return output.getvalue()
+        return output.getvalue()
 
-st.markdown("## 📄 ดาวน์โหลดรายงาน")
+    st.markdown("## 📤 ดาวน์โหลดรายงาน")
 
-st.download_button(
-    "⬇️ ดาวน์โหลดใบตรวจ MRA",
-    data=ส่งออกรายงาน(ข้อมูล, เลือก),
-    file_name="รายงาน_MRA_OPD.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
+    st.download_button(
+        "⬇️ ดาวน์โหลด MRA OPD REPORT",
+        data=export(df),
+        file_name=f"MRA_OPD_REALTIME_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
