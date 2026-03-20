@@ -3,27 +3,36 @@ import pandas as pd
 import numpy as np
 import re
 
-st.set_page_config(page_title="Medical System", layout="wide")
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
+from reportlab.lib.styles import getSampleStyleSheet
 
-# ================= USERS =================
-users = {
-    "admin": {"password": "1234", "role": "admin"},
-    "user": {"password": "1234", "role": "user"}
-}
+st.set_page_config(page_title="MRA OPD", layout="wide")
 
-if "login" not in st.session_state:
-    st.session_state.login = False
+# ================= STYLE =================
+st.markdown("""
+<style>
+.main {background-color:#f4f8fb;}
+.header {background:linear-gradient(90deg,#0f3057,#008891);padding:20px;border-radius:12px;color:white;}
+.card {background:white;padding:18px;border-radius:12px;margin-bottom:15px;box-shadow:0px 4px 12px rgba(0,0,0,0.08);}
+.good {color:green;font-weight:bold;}
+.fair {color:orange;font-weight:bold;}
+.poor {color:red;font-weight:bold;}
+</style>
+""", unsafe_allow_html=True)
 
 # ================= LOGIN =================
+users = {"admin":{"password":"1234"},"user":{"password":"1234"}}
+
+if "login" not in st.session_state:
+    st.session_state.login=False
+
 def login():
     st.markdown("## 🔐 Login")
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
-
+    u=st.text_input("Username")
+    p=st.text_input("Password",type="password")
     if st.button("Login"):
-        if u in users and users[u]["password"] == p:
-            st.session_state.login = True
-            st.session_state.role = users[u]["role"]
+        if u in users and users[u]["password"]==p:
+            st.session_state.login=True
             st.rerun()
         else:
             st.error("Login failed")
@@ -32,172 +41,145 @@ if not st.session_state.login:
     login()
     st.stop()
 
-# ================= MENU =================
-menu = st.sidebar.radio("📂 Menu", ["Home", "Data Check"])
+# ================= HEADER =================
+st.markdown('<div class="header"><h2>🏥 ระบบตรวจสอบเวชระเบียน (MRA OPD)</h2></div>',unsafe_allow_html=True)
 
+# ================= MENU =================
+menu=st.sidebar.radio("📂 เมนู",["🏠 หน้าแรก","📊 ตรวจข้อมูล"])
 if st.sidebar.button("Logout"):
     st.session_state.clear()
     st.rerun()
 
 # ================= HOME =================
-if menu == "Home":
-    st.success("✅ System Ready")
+if menu=="🏠 หน้าแรก":
+    st.success("ระบบพร้อมใช้งาน")
 
-# ================= DATA CHECK =================
-elif menu == "Data Check":
+# ================= DATA =================
+elif menu=="📊 ตรวจข้อมูล":
 
-    file = st.file_uploader("📁 Upload File", type=["xlsx","csv"])
+    file=st.file_uploader("📁 อัปโหลดไฟล์",type=["xlsx","csv"])
 
     if file:
-        try:
-            df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
-            df = df.replace("None", None)
+        df=pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
 
-            # ===== CHECK =====
-            def check_range(v,a,b):
-                if pd.isna(v): return "Missing"
-                if v<a or v>b: return "Invalid"
-                return "OK"
+        # ===== CHECK =====
+        def check_range(v,a,b):
+            if pd.isna(v): return "Missing"
+            if v<a or v>b: return "Invalid"
+            return "OK"
 
-            def check_text(v):
-                if pd.isna(v): return "Missing"
-                if len(str(v))<3: return "Invalid"
-                return "OK"
+        def check_text(v):
+            if pd.isna(v): return "Missing"
+            if len(str(v))<3: return "Invalid"
+            return "OK"
 
-            def check_icd(v):
-                if pd.isna(v): return "Missing"
-                if re.match(r"^[A-Z][0-9]{2,3}$", str(v)):
-                    return "OK"
-                return "Invalid"
+        def check_icd(v):
+            if pd.isna(v): return "Missing"
+            if re.match(r"^[A-Z][0-9]{2,3}$",str(v)): return "OK"
+            return "Invalid"
 
-            # ===== APPLY =====
-            if "Age" in df: df["Age_error"]=df["Age"].apply(lambda x:check_range(x,0,120))
-            if "DiagnosisCode" in df: df["Diagnosis_error"]=df["DiagnosisCode"].apply(check_icd)
-            if "DiagnosisText" in df: df["DiagnosisText_error"]=df["DiagnosisText"].apply(check_text)
-            if "Treatment" in df: df["Treatment_error"]=df["Treatment"].apply(check_text)
-            if "FollowUp" in df: df["FollowUp_error"]=df["FollowUp"].apply(check_text)
-            if "Doctor" in df: df["Doctor_error"]=df["Doctor"].apply(check_text)
+        if "Age" in df: df["Age_error"]=df["Age"].apply(lambda x:check_range(x,0,120))
+        if "DiagnosisCode" in df: df["Diagnosis_error"]=df["DiagnosisCode"].apply(check_icd)
+        if "DiagnosisText" in df: df["DiagnosisText_error"]=df["DiagnosisText"].apply(check_text)
+        if "Treatment" in df: df["Treatment_error"]=df["Treatment"].apply(check_text)
+        if "FollowUp" in df: df["FollowUp_error"]=df["FollowUp"].apply(check_text)
+        if "Doctor" in df: df["Doctor_error"]=df["Doctor"].apply(check_text)
 
-            error_cols = [c for c in df.columns if "_error" in c]
+        error_cols=[c for c in df.columns if "_error" in c]
 
-            # ===== ERROR COUNT =====
-            df["Error_Count"] = df[error_cols].apply(
-                lambda r: sum([1 for v in r if v in ["Missing","Invalid"]]), axis=1
-            ) if error_cols else 0
+        # ===== ERROR COUNT =====
+        df["Error_Count"]=df[error_cols].apply(lambda r:sum(v!="OK" for v in r),axis=1)
 
-            # ===== MRA SCORE =====
-            weights = {
-                "Diagnosis_error":0.3,
-                "DiagnosisText_error":0.2,
-                "Treatment_error":0.2,
-                "FollowUp_error":0.15,
-                "Doctor_error":0.15
-            }
+        # ===== CRITERIA =====
+        criteria={
+            "Diagnosis_error":{"name":"ICD-10","score":30},
+            "DiagnosisText_error":{"name":"วินิจฉัย","score":20},
+            "Treatment_error":{"name":"การรักษา","score":20},
+            "FollowUp_error":{"name":"นัดติดตาม","score":15},
+            "Doctor_error":{"name":"แพทย์","score":15}
+        }
 
-            def calc(row):
-                s,t=0,0
-                for col,w in weights.items():
-                    if col in row:
-                        v=row[col]
-                        if v!="Missing":
-                            t+=w
-                            if v=="OK": s+=w
-                return (s/t)*100 if t else 0
+        # ===== SCORE =====
+        def calc(row):
+            s=0
+            for col,v in criteria.items():
+                if col in row and row[col]=="OK":
+                    s+=v["score"]
+            return s
 
-            df["MRA_Score"]=df.apply(calc,axis=1)
-            df["MRA_Level"]=df["MRA_Score"].apply(
-                lambda x:"Good 🟢" if x>=90 else "Fair 🟡" if x>=70 else "Poor 🔴"
-            )
+        df["MRA_Score"]=df.apply(calc,axis=1)
+        df["MRA_Level"]=df["MRA_Score"].apply(lambda x:"Good 🟢" if x>=90 else "Fair 🟡" if x>=70 else "Poor 🔴")
 
-            # ================= FILTER =================
-            st.subheader("🔎 Filter")
+        # ===== FILTER =====
+        filtered=df.copy()
+        if "Doctor" in df:
+            doc=st.selectbox("เลือกแพทย์",["All"]+list(df["Doctor"].dropna().unique()))
+            if doc!="All": filtered=filtered[filtered["Doctor"]==doc]
 
-            filtered_df = df.copy()
+        level=st.selectbox("เลือกระดับ",["All","Good 🟢","Fair 🟡","Poor 🔴"])
+        if level!="All": filtered=filtered[filtered["MRA_Level"]==level]
 
-            c1,c2 = st.columns(2)
+        # ===== DASHBOARD =====
+        c1,c2,c3=st.columns(3)
+        c1.metric("จำนวน",len(filtered))
+        c2.metric("คะแนนเฉลี่ย",f"{filtered['MRA_Score'].mean():.2f}")
+        c3.metric("Error เฉลี่ย",f"{filtered['Error_Count'].mean():.2f}")
 
-            if "Doctor" in df.columns:
-                doctors = ["All"] + sorted(df["Doctor"].dropna().unique().tolist())
-                doc = c1.selectbox("Doctor", doctors)
-                if doc != "All":
-                    filtered_df = filtered_df[filtered_df["Doctor"] == doc]
+        st.bar_chart(filtered["MRA_Level"].value_counts())
 
-            level = c2.selectbox("Level", ["All","Good 🟢","Fair 🟡","Poor 🔴"])
-            if level != "All":
-                filtered_df = filtered_df[filtered_df["MRA_Level"] == level]
+        # ===== CASE VIEW =====
+        st.markdown("## 🔍 วิเคราะห์รายเคส")
 
-            # ================= DASHBOARD =================
-            c1,c2,c3 = st.columns(3)
-            c1.metric("Total", len(filtered_df))
-            c2.metric("Avg Score", f"{filtered_df['MRA_Score'].mean():.2f}%")
-            c3.metric("Avg Error", f"{filtered_df['Error_Count'].mean():.2f}")
+        idx=st.selectbox("เลือกเคส",filtered.index)
+        case=filtered.loc[idx]
 
-            st.bar_chart(filtered_df["MRA_Level"].value_counts())
+        # DETAIL
+        detail=[]
+        total=0
+        got=0
 
-            # ================= ERROR SUMMARY =================
-            if error_cols:
-                err_sum={col:(filtered_df[col]!="OK").sum() for col in error_cols}
-                err_df=pd.DataFrame({"Column":err_sum.keys(),"Errors":err_sum.values()})
-                st.subheader("Top Errors")
-                st.bar_chart(err_df.set_index("Column"))
+        for col,v in criteria.items():
+            if col in case:
+                total+=v["score"]
+                score=v["score"] if case[col]=="OK" else 0
+                got+=score
+                detail.append([v["name"],v["score"],score,case[col]])
 
-            # ================= CASE VIEW =================
-            st.subheader("🔍 วิเคราะห์รายเคส")
-
-            if "PatientID" in filtered_df.columns:
-                pid = st.selectbox("เลือกเคส", filtered_df["PatientID"])
-                case = filtered_df[filtered_df["PatientID"]==pid].iloc[0]
-            else:
-                idx = st.selectbox("เลือก index", filtered_df.index)
-                case = filtered_df.loc[idx]
-
-            st.markdown(f"""
-### 🧾 Result
-- 🎯 Score: **{case['MRA_Score']:.2f}%**
-- 📊 Level: **{case['MRA_Level']}**
-- ❌ Errors: **{case['Error_Count']} จุด**
+        st.markdown(f"""
+### 🧾 ผลการประเมิน
+- คะแนนเต็ม: {total}
+- ได้: {got}
+- %: {(got/total)*100:.2f}
+- ระดับ: {case['MRA_Level']}
 """)
 
-            st.markdown("### 🔎 ปัญหาที่พบ")
-            for col in error_cols:
-                if case[col] != "OK":
-                    st.write(f"❌ {col} → {case[col]}")
+        st.dataframe(pd.DataFrame(detail,columns=["หัวข้อ","เต็ม","ได้","สถานะ"]))
 
-            st.markdown("### 📉 คะแนนที่หายไป")
-            for col,w in weights.items():
-                if col in case and case[col] != "OK":
-                    st.write(f"- {col} (-{w*100:.0f}%)")
+        # ===== HIGHLIGHT TABLE =====
+        def color(v):
+            if v=="Missing": return "background-color:orange"
+            if v=="Invalid": return "background-color:red;color:white"
+            return ""
 
-            # ================= TABLE =================
-            def highlight(v):
-                if v=="Missing": return "background-color:orange"
-                if v=="Invalid": return "background-color:red;color:white"
-                return ""
+        st.dataframe(filtered.style.applymap(color,subset=error_cols))
 
-            def highlight_row(row):
-                if row["Error_Count"]>=3:
-                    return ["background-color:#ffcccc"]*len(row)
-                elif row["Error_Count"]>=1:
-                    return ["background-color:#fff0e6"]*len(row)
-                return [""]*len(row)
+        # ===== RANKING =====
+        st.markdown("## 🏆 Ranking")
+        st.dataframe(filtered.sort_values("MRA_Score",ascending=False).head(10))
+        st.dataframe(filtered.sort_values("MRA_Score").head(10))
 
-            if error_cols:
-                styled=filtered_df.style.apply(highlight_row,axis=1)\
-                                        .applymap(highlight,subset=error_cols)
-                st.dataframe(styled)
-            else:
-                st.dataframe(filtered_df)
+        # ===== PDF =====
+        def export_pdf():
+            doc=SimpleDocTemplate("report.pdf")
+            styles=getSampleStyleSheet()
+            content=[]
+            content.append(Paragraph("รายงาน MRA OPD",styles["Title"]))
+            content.append(Paragraph(f"คะแนน: {got}",styles["Normal"]))
+            content.append(Spacer(1,10))
+            content.append(Table([["หัวข้อ","เต็ม","ได้","สถานะ"]]+detail))
+            doc.build(content)
 
-            # ================= AI RECOMMEND =================
-            st.subheader("🤖 Recommendation")
-
-            for col in error_cols:
-                count = (filtered_df[col]!="OK").sum()
-                if count>0:
-                    st.warning(f"{col}: พบ {count} เคส ควรปรับปรุง")
-
-            # ================= DOWNLOAD =================
-            st.download_button("📄 Download", filtered_df.to_csv(index=False), "result.csv")
-
-        except Exception as e:
-            st.error(f"❌ {e}")
+        if st.button("📄 Export PDF"):
+            export_pdf()
+            with open("report.pdf","rb") as f:
+                st.download_button("Download PDF",f,"report.pdf")
