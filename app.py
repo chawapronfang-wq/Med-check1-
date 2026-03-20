@@ -2,8 +2,9 @@ import streamlit as st
 import pandas as pd
 import re
 import io
+from datetime import datetime
 
-st.set_page_config(page_title="MRA OPD", layout="wide")
+st.set_page_config(page_title="MRA OPD SYSTEM", layout="wide")
 
 # ================= STYLE =================
 st.markdown("""
@@ -11,13 +12,22 @@ st.markdown("""
 .main {background-color:#f4f8fb;}
 .header {
     background:linear-gradient(90deg,#0f3057,#008891);
-    padding:20px;border-radius:12px;color:white;
+    padding:22px;
+    border-radius:14px;
+    color:white;
+    font-size:22px;
+}
+.card {
+    background:white;
+    padding:15px;
+    border-radius:12px;
+    box-shadow:0px 4px 10px rgba(0,0,0,0.08);
 }
 </style>
 """, unsafe_allow_html=True)
 
 # ================= HEADER =================
-st.markdown('<div class="header"><h2>🏥 ระบบตรวจสอบเวชระเบียน MRA OPD</h2></div>', unsafe_allow_html=True)
+st.markdown('<div class="header">🏥 MRA OPD SYSTEM (Hospital Quality Audit)</div>', unsafe_allow_html=True)
 
 # ================= LOGIN =================
 users = {"admin": "1234"}
@@ -26,30 +36,30 @@ if "login" not in st.session_state:
     st.session_state.login = False
 
 def login():
-    st.subheader("🔐 เข้าสู่ระบบ")
-    u = st.text_input("ชื่อผู้ใช้")
-    p = st.text_input("รหัสผ่าน", type="password")
+    st.subheader("🔐 Login")
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
 
     if st.button("Login"):
         if u in users and users[u] == p:
             st.session_state.login = True
             st.rerun()
         else:
-            st.error("❌ เข้าสู่ระบบไม่สำเร็จ")
+            st.error("Login failed")
 
 if not st.session_state.login:
     login()
     st.stop()
 
 # ================= UPLOAD =================
-file = st.file_uploader("📁 อัปโหลดไฟล์ CSV / Excel", type=["csv", "xlsx"])
+file = st.file_uploader("📁 Upload OPD File", type=["csv","xlsx"])
 
 if file:
 
     df = pd.read_csv(file) if file.name.endswith(".csv") else pd.read_excel(file)
 
-    # ================= CHECK =================
-    def check(v):
+    # ================= CHECK FUNCTIONS =================
+    def check_text(v):
         if pd.isna(v):
             return "Missing"
         if len(str(v)) < 3:
@@ -62,49 +72,55 @@ if file:
         return "OK" if re.match(r"^[A-Z][0-9]{2,3}$", str(v)) else "Invalid"
 
     # ================= APPLY =================
+    criteria = {}
+
     if "DiagnosisCode" in df:
         df["ICD"] = df["DiagnosisCode"].apply(check_icd)
+        criteria["ICD"] = 50
 
     if "DiagnosisText" in df:
-        df["TEXT"] = df["DiagnosisText"].apply(check)
+        df["TEXT"] = df["DiagnosisText"].apply(check_text)
+        criteria["TEXT"] = 50
 
-    status_cols = [c for c in df.columns if c in ["ICD", "TEXT"]]
+    status_cols = list(criteria.keys())
 
     # ================= SCORE =================
-    def score_row(row):
+    def calc(row):
         full = len(status_cols) * 50
-        got = 0
-
-        for c in status_cols:
-            if row[c] == "OK":
-                got += 50
-
+        got = sum(50 for c in status_cols if row.get(c) == "OK")
         percent = (got / full * 100) if full > 0 else 0
-
         return pd.Series([full, got, percent])
 
-    df[["คะแนนเต็ม", "คะแนนได้", "เปอร์เซ็นต์"]] = df.apply(score_row, axis=1)
+    df[["คะแนนเต็ม", "คะแนนได้", "เปอร์เซ็นต์"]] = df.apply(calc, axis=1)
 
-    df["ระดับ"] = df["เปอร์เซ็นต์"].apply(
-        lambda x: "ดี 🟢" if x >= 90 else "พอใช้ 🟡" if x >= 70 else "ต้องแก้ไข 🔴"
-    )
+    # ================= LEVEL =================
+    def level(x):
+        if x >= 90:
+            return "ดี 🟢"
+        elif x >= 70:
+            return "พอใช้ 🟡"
+        else:
+            return "ต้องแก้ไข 🔴"
+
+    df["ระดับ"] = df["เปอร์เซ็นต์"].apply(level)
 
     # ================= FILTER =================
-    level = st.selectbox("📊 เลือกระดับ", ["ทั้งหมด", "ดี 🟢", "พอใช้ 🟡", "ต้องแก้ไข 🔴"])
+    level_filter = st.selectbox("📊 เลือกระดับ", ["ทั้งหมด","ดี 🟢","พอใช้ 🟡","ต้องแก้ไข 🔴"])
 
     show = df.copy()
-    if level != "ทั้งหมด":
-        show = show[show["ระดับ"] == level]
+    if level_filter != "ทั้งหมด":
+        show = show[show["ระดับ"] == level_filter]
 
-    # ================= KPI =================
+    # ================= DASHBOARD =================
     c1, c2, c3 = st.columns(3)
+
     c1.metric("จำนวนเคส", len(show))
     c2.metric("คะแนนเฉลี่ย", f"{show['คะแนนได้'].mean():.2f}")
-    c3.metric("เปอร์เซ็นต์เฉลี่ย", f"{show['เปอร์เซ็นต์'].mean():.2f}")
+    c3.metric("% คุณภาพ", f"{show['เปอร์เซ็นต์'].mean():.2f}")
 
     st.bar_chart(show["ระดับ"].value_counts())
 
-    # ================= COLOR FULL ROW =================
+    # ================= ROW COLOR =================
     def row_color(row):
         if row["ระดับ"] == "ดี 🟢":
             return ["background-color:#d4edda"] * len(row)
@@ -115,29 +131,70 @@ if file:
 
     st.markdown("## 📋 ตารางตรวจสอบ")
 
-    st.dataframe(
-        show.style.apply(row_color, axis=1),
-        use_container_width=True
-    )
+    st.dataframe(show.style.apply(row_color, axis=1), use_container_width=True)
 
     # ================= DETAIL =================
-    st.markdown("## 🔍 ดูเคส")
+    st.markdown("## 🔍 รายละเอียดเคส")
 
     idx = st.selectbox("เลือกเคส", show.index)
     st.write(show.loc[idx])
 
-    # ================= EXPORT =================
-    def to_excel(data):
+    # ================= STATUS TEXT =================
+    st.markdown("## 🧾 สถานะข้อมูล")
+
+    def status(v):
+        if v == "Missing":
+            return "❗ ข้อมูลหาย (ควรแก้ไข)"
+        if v == "Invalid":
+            return "⚠️ รูปแบบไม่ถูกต้อง"
+        if v == "OK":
+            return "✅ ถูกต้อง"
+        return "ไม่อยู่ในเกณฑ์ประเมิน"
+
+    for c in status_cols:
+        st.write(f"{c}: {status(show.loc[idx, c])}")
+
+    # ================= EXPORT EXCEL PRO =================
+    def export_excel(df):
+
         output = io.BytesIO()
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        error = df[df["ระดับ"] != "ดี 🟢"]
+
+        summary = pd.DataFrame({
+            "รายการ": [
+                "จำนวนเคส",
+                "คะแนนเฉลี่ย",
+                "เปอร์เซ็นต์เฉลี่ย",
+                "Good",
+                "Fair",
+                "Poor",
+                "Export Date"
+            ],
+            "ค่า": [
+                len(df),
+                df["คะแนนได้"].mean(),
+                df["เปอร์เซ็นต์"].mean(),
+                len(df[df["ระดับ"] == "ดี 🟢"]),
+                len(df[df["ระดับ"] == "พอใช้ 🟡"]),
+                len(df[df["ระดับ"] == "ต้องแก้ไข 🔴"]),
+                now
+            ]
+        })
+
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            data.to_excel(writer, index=False, sheet_name='MRA')
+            df.to_excel(writer, index=False, sheet_name="All_Data")
+            error.to_excel(writer, index=False, sheet_name="Error_Cases")
+            summary.to_excel(writer, index=False, sheet_name="Summary")
+
         return output.getvalue()
 
-    st.markdown("## 📤 Export Excel")
+    st.markdown("## 📤 Export Report")
 
     st.download_button(
-        "⬇️ ดาวน์โหลด Excel",
-        data=to_excel(show),
-        file_name="MRA_OPD.xlsx",
+        "⬇️ ดาวน์โหลด MRA OPD Report",
+        data=export_excel(show),
+        file_name=f"MRA_OPD_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
